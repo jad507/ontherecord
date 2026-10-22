@@ -7,3 +7,6 @@ machine.yaml
 # Default workspace when the machine config names none. Holds meeting audio: never commit it.
 workspace/
 data/
+
+# notes kept on this machine only
+docs/private/

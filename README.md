@@ -113,11 +113,12 @@ results from different machines are never mistaken for each other.
 
 ## Status
 
-Built in October 2026 for Penn State CSRAI's Research-a-thon. Working on Linux: the runner, store, receipts and
-checks; the council pipeline stages; the job queue (one job at a time, the assistant included); the Library and player; imports
-with verified copies; the assistant and its MCP server (`pytest` covers caching, wiring, the queue, cancel,
-imports, clearing, the library and the MCP server). Next: installers for Windows and macOS and a Docker image, a
-first-run setup page, a view comparing two runs, the stress-test pipelines, and a Slurm backend.
+Built in October 2026 for Penn State CSRAI's Research-a-thon. Working and tested on Linux: the runner, store,
+receipts and checks; the council pipeline stages; the stress-test stages (StressTest, StressPresso, WhiStress, a text
+reader); the job queue (one job at a time, the assistant included); the Library and player; Compare; imports with
+verified copies; the assistant and its MCP server; the Setup tab; the Linux installer and the Docker image. Written
+but not yet tried: the Windows and macOS installers. Not started: a Slurm backend, and receipts backfilled for older
+outputs. Details, decisions and next steps: [docs/STATUS.md](docs/STATUS.md).
 
 Built by Jeffrey De Lucca (jad507@psu.edu) with Claude Code.
 MIT licensed (see [LICENSE](LICENSE)). To cite it, see [CITATION.cff](CITATION.cff).
