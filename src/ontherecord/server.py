@@ -9,6 +9,7 @@ never by opening the port: the page can start jobs on this machine and shows res
 from __future__ import annotations
 
 import json
+import os
 import threading
 from pathlib import Path
 
@@ -44,6 +45,14 @@ class PromptIn(BaseModel):
 
 class ChatIn(BaseModel):
     messages: list[dict]
+
+
+class TokenIn(BaseModel):
+    token: str
+
+
+class ModelsIn(BaseModel):
+    models: list[str]
 
 
 class ConfirmIn(BaseModel):
@@ -388,6 +397,50 @@ def create_app(cfg: MachineConfig, dispatch: bool = True) -> FastAPI:
         if not csv_path.is_file():
             raise HTTPException(404, f"the manifest is not at {csv_path}: is the archive's drive plugged in?")
         return FileResponse(csv_path, filename=csv_path.name, media_type="text/csv")
+
+    # ------------------------------------------------------------------ setup
+    @app.get("/api/setup")
+    def setup_info():
+        import shutil as sh
+        from . import bootstrap as b
+        from .config import user_config_dir
+        hw = b.hardware()
+        root = cfg.models_root or b.home_dir() / "models"
+        status = b.model_status(root)
+        fit = b.fit(hw)
+        tools = {}
+        for t in ("ffmpeg", "ffprobe", "llama_server"):
+            path = cfg.tool(t)
+            tools[t] = path if (Path(path).is_file() or sh.which(path)) else None
+        return {"hardware": hw, "fit": fit, "tools": tools, "models_root": str(root),
+                "models": [{"name": n, "size_gb": round(m["bytes"] / 1e9, 1), "about": m["about"], "role": m["role"],
+                            "gated": bool(m.get("gated")), "status": status[n],
+                            "recommended": n in (fit["assistant"], fit["extraction"]) or m["role"] == "speech"}
+                           for n, m in b.MODELS.items()],
+                "has_token": bool(os.environ.get("HF_TOKEN") or cfg.secret_env().get("HF_TOKEN")),
+                "secrets_file": str(cfg.env_file or user_config_dir() / "secrets.env"),
+                "config_file": str(cfg.source) if cfg.source else None, "workspace": str(cfg.workspace),
+                "archive": str(cfg.archive)}
+
+    @app.post("/api/setup/token")
+    def setup_token(body: TokenIn):
+        from . import bootstrap as b
+        from .config import user_config_dir
+        t = body.token.strip()
+        if not t.startswith("hf_") or len(t) < 20:
+            raise HTTPException(422, "that does not look like a Hugging Face token (they start with hf_)")
+        path = b.save_token(cfg.env_file or user_config_dir() / "secrets.env", t)
+        if not cfg.env_file:
+            cfg.env_file = path  # this session; `ontherecord setup` writes it into the machine config
+        return {"saved": str(path)}
+
+    @app.post("/api/setup/models")
+    def setup_models(body: ModelsIn):
+        from . import bootstrap as b
+        bad = [m for m in body.models if m not in b.MODELS]
+        if bad or not body.models:
+            raise HTTPException(422, f"unknown models: {bad}" if bad else "choose at least one model")
+        return {"run_id": queue.submit_task("download", {"models": body.models}, "download models")}
 
     # ------------------------------------------------------------------ the assistant
     def assistant():

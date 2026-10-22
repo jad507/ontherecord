@@ -40,6 +40,7 @@ function showTab(name) {
   if (name === "library") refreshLibrary();
   if (name === "import") refreshImport();
   if (name === "ask") $("#ask-input").focus();
+  if (name === "setup") refreshSetup();
 }
 document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
 
@@ -215,7 +216,7 @@ function editPrompt(i, key) {
       closeModal();
       renderStages();
       msg(`Saved ${r.file}`, "ok");
-    } catch (err) { alert(err.message); }
+    } catch (err) { $("#modal-body").insertAdjacentHTML("beforeend", `<p class="msg err">${esc(err.message)}</p>`); }
   });
 }
 
@@ -775,6 +776,55 @@ $("#chat").addEventListener("click", async (e) => {
   const r = await api("/api/assistant/confirm", { json: { tool: p.tool, args: p.args } }).catch((err) => ({ result: err.message }));
   box.innerHTML = linkify(r.result);
   chatNotes.push(`(I pressed the button. Result: ${r.result})`);
+});
+
+// ---------------------------------------------------------------- setup
+let setupTimer = null;
+async function refreshSetup() {
+  const [d, jobs] = await Promise.all([api("/api/setup"), api("/api/jobs").catch(() => [])]);
+  const hw = d.hardware, g = hw.gpu;
+  const dl = jobs.filter((j) => j.name === "download models" && (j.status === "queued" || j.status === "running"));
+  const st = (s) => (s === true ? `<span class="badge b-done">downloaded</span>` : s ? `<span class="badge b-failed">${esc(s)}</span>` : `<span class="muted">not downloaded</span>`);
+  $("#setup").innerHTML = `
+    <div class="imp-card"><h3>This computer</h3>
+      <div>${esc(hw.os)} ${esc(hw.arch)} · ${hw.ram_gb} GB memory · ${g ? `${esc(g.name)} (${g.memory_gb} GB)` : "no graphics card found: everything runs on the processor, slowly"}</div>
+      <div class="muted">Fits: assistant ${esc(d.fit.assistant)} · comment extraction ${esc(d.fit.extraction)} · Whisper ${esc(d.fit.whisper)}</div>
+      <div class="muted" style="font-size:12px">Recordings: ${esc(d.workspace)} · Archive: ${esc(d.archive)} · Settings: ${esc(d.config_file || "built-in defaults")}</div></div>
+    <div class="imp-card"><h3>Programs</h3>${Object.entries(d.tools).map(([k, v]) => `<div>${v ? "✓" : "✗"} <b>${esc(k)}</b> <span class="muted">${esc(v || "missing: run the installer again, or `ontherecord setup`")}</span></div>`).join("")}</div>
+    <div class="imp-card"><h3>Models</h3>
+      ${table(d.models, [["", (m) => ""], ["model", (m) => m.name], ["size", (m) => `${m.size_gb} GB`], ["for", (m) => m.about], ["", (m) => ""]])}
+      ${dl.length ? `<p class="msg ok">Downloading (${esc(dl[0].run_id)})… progress is also on the Jobs tab.</p>` : ""}
+      <div class="btns" style="margin-top:8px"><button id="dl-btn" ${dl.length ? "disabled" : ""}>Download the checked models</button>
+        <span class="muted" style="font-size:12px">Each file is checked against its published fingerprint before it is used.</span></div></div>
+    <div class="imp-card"><h3>Hugging Face token ${d.has_token ? `<span class="badge b-done">saved</span>` : ""}</h3>
+      <p>The speaker model (pyannote) needs a free Hugging Face account. Sign in at <a href="https://huggingface.co" target="_blank" rel="noopener">huggingface.co</a>,
+        accept the terms at <a href="https://huggingface.co/pyannote/speaker-diarization-community-1" target="_blank" rel="noopener">pyannote/speaker-diarization-community-1</a>,
+        then make a token with Read access at <a href="https://huggingface.co/settings/tokens" target="_blank" rel="noopener">huggingface.co/settings/tokens</a> and paste it here.</p>
+      <div class="row" style="display:flex;gap:6px"><input id="hf-token" type="password" placeholder="hf_..." autocomplete="off" style="margin:0"><button id="token-btn" class="secondary">Save token</button></div>
+      <div class="muted" style="font-size:12px">Kept in ${esc(d.secrets_file)}, readable only by you. It is never written into a receipt.</div>
+      <div id="token-msg" class="msg"></div></div>`;
+  // the models table, with a checkbox per row (recommended ones that are missing start checked)
+  const rows = document.querySelectorAll("#setup table.data tr");
+  d.models.forEach((m, i) => {
+    const cells = rows[i + 1].children;
+    cells[0].innerHTML = m.status === true ? "" : `<input type="checkbox" data-model="${esc(m.name)}" ${m.recommended ? "checked" : ""}>`;
+    cells[1].innerHTML = `<b>${esc(m.name)}</b>${m.recommended ? ' <span class="badge">fits this computer</span>' : ""}${m.gated ? ' <span class="muted">(needs the token)</span>' : ""}`;
+    cells[4].innerHTML = st(m.status);
+  });
+  clearTimeout(setupTimer);
+  if (dl.length && $("#tab-setup").classList.contains("active")) setupTimer = setTimeout(refreshSetup, 3000);
+}
+$("#setup").addEventListener("click", async (e) => {
+  if (e.target.id === "dl-btn") {
+    const models = [...document.querySelectorAll("#setup [data-model]:checked")].map((x) => x.dataset.model);
+    try { await api("/api/setup/models", { json: { models } }); return refreshSetup(); }
+    catch (err) { $("#dl-btn").insertAdjacentHTML("afterend", ` <span class="msg err">${esc(err.message)}</span>`); }
+    return;
+  }
+  if (e.target.id === "token-btn") {
+    try { const r = await api("/api/setup/token", { json: { token: $("#hf-token").value } }); $("#token-msg").textContent = `Saved in ${r.saved}.`; $("#token-msg").className = "msg ok"; }
+    catch (err) { $("#token-msg").textContent = err.message; $("#token-msg").className = "msg err"; }
+  }
 });
 
 // ---------------------------------------------------------------- start

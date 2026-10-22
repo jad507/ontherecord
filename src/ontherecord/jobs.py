@@ -335,6 +335,8 @@ def run_task(cfg: MachineConfig, q: JobQueue, run_id: str, job: dict) -> int:
                                     ffprobe=cfg.tool("ffprobe"), exiftool=exiftool if sh.which(exiftool) else None)
         elif spec["kind"] == "clear":
             rec = ingest.run_clear(spec, run_dir, run_id, cancelled=stop.is_set, log=log)
+        elif spec["kind"] == "download":
+            rec = run_downloads(cfg, spec, run_dir, run_id, log)
         else:
             raise ValueError(f"unknown task kind {spec['kind']!r}")
     except Exception as e:
@@ -349,3 +351,28 @@ def run_task(cfg: MachineConfig, q: JobQueue, run_id: str, job: dict) -> int:
     finally:
         log_file.close()
     return 0 if rec["status"] == "done" else 1
+
+
+def run_downloads(cfg: MachineConfig, spec: dict, run_dir: Path, run_id: str, log) -> dict:
+    """Download catalog models (the Setup tab's buttons), one row per model, each checked against its pinned hash."""
+    import os
+    from types import SimpleNamespace
+    from . import bootstrap as b
+    from .ingest import _Progress
+    rows = [SimpleNamespace(rel=n) for n in spec["models"]]
+    prog = _Progress(run_dir, run_id, spec.get("name") or "download models", "download", "Download and check", rows,
+                     {"description": "models: " + ", ".join(spec["models"])})
+    token = os.environ.get("HF_TOKEN") or cfg.secret_env().get("HF_TOKEN")
+    root = cfg.models_root or b.home_dir() / "models"
+    status = "done"
+    for r in rows:
+        prog.cell(r, "running")
+        try:
+            path = b.get_model(r.rel, root, token, cfg.python_for("audio"), log=log)
+            prog.cell(r, "ran", checks="ok", note=path)
+        except Exception as e:
+            status = "failed"
+            prog.cell(r, "failed", error=f"{type(e).__name__}: {e}")
+            log(f"FAILED {r.rel}: {e}")
+    prog.finish(status)
+    return prog.rec
