@@ -34,13 +34,16 @@ confirm, so tell them to press it.
 Today is {today}."""
 
 
+ACTION_WORDS = re.compile(r"transcri|import|cancel|stop|go ahead|button|confirm|start|begin|process", re.I)
+
+
 def proposal(p: dict) -> str:
     """What a waiting action will do, in a sentence."""
     a = p["args"]
     if p["tool"] == "transcribe":
         n = len(a.get("links") or [])
         return (f"I can transcribe {n} link{'s' if n != 1 else ''}"
-                + (" and list its public comments" if a.get("with_comments") else "") + ".")
+                + (f" and list {'their' if n != 1 else 'its'} public comments" if a.get("with_comments") else "") + ".")
     if p["tool"] == "cancel_job":
         return f"I can stop job {a.get('job_id')}; work already finished is kept."
     if p["tool"] == "import_device":
@@ -149,8 +152,10 @@ class Assistant:
             reply = "I could not finish that in a few steps. Could you say it another way?"
             msgs.append({"role": "assistant", "content": reply})
         if pending:
-            # Said by the program, not the model: a small model may claim it already did what still waits for a click.
-            reply = " ".join(proposal(p) for p in pending) + " Press Go ahead to start it, or No to leave it."
+            # The model's sentences about the waiting action are replaced by the program's own: a small model may
+            # claim it already did what still waits for a click. The rest of its answer stays.
+            kept = [x for x in re.split(r"(?<=[.!?])\s+", reply) if x and not ACTION_WORDS.search(x)]
+            reply = " ".join(kept + [proposal(p) for p in pending]) + " Press Go ahead to start it, or No to leave it."
             msgs[-1] = {"role": "assistant", "content": reply}
         with self.lock:
             self.last_used = time.time()

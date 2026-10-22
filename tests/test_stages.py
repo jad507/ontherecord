@@ -44,3 +44,13 @@ def test_assistant_links_times_it_quoted():
     assert links["8:23"] == links["0:08:23"] == "#play/R/I/503"
     assert links["0:45"] == "#play/R/I/45" and "45" not in links
     assert "17:05" not in links  # quoted from two recordings: ambiguous
+
+
+def test_pending_reply_keeps_the_answer_and_drops_claims():
+    import re
+    from ontherecord.assistant import ACTION_WORDS, proposal
+    reply = "Two speakers opposed and two asked questions. I have started transcribing the link for you."
+    kept = [x for x in re.split(r"(?<=[.!?])\s+", reply) if x and not ACTION_WORDS.search(x)]
+    assert kept == ["Two speakers opposed and two asked questions."]
+    assert proposal({"tool": "transcribe", "args": {"links": ["a", "b"], "with_comments": True}}) == \
+        "I can transcribe 2 links and list their public comments."
