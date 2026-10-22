@@ -6,6 +6,7 @@ services:
   ontherecord:
     build: .
     image: ontherecord:0.1.0
+    user: "${UID:-1000}:${GID:-1000}"   # files in ./data belong to you, not root (export UID GID if yours differ)
     ports:
       - "127.0.0.1:8765:8765"   # this machine only; reach it from elsewhere through an SSH tunnel
     volumes:

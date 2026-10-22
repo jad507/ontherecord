@@ -23,4 +23,8 @@ docker compose exec ontherecord ontherecord models get pyannote-community-1 --to
 On a cluster that runs Apptainer rather than Docker, the same image works: `apptainer build ontherecord.sif
 docker-daemon://ontherecord:0.1.0`, then run it with `--nv` and `/data` bound to a project directory.
 
+The container runs as your user (`user:` in docker-compose.yml, from `UID` and `GID`), so the files it writes in
+`./data` are yours. Tested on Linux with an NVIDIA GPU (driver 615, NVIDIA Container Toolkit 1.20): the GUI, the
+queue, and a run from audio through speakers and Whisper to alignment, all on the GPU.
+
 The image records itself in every receipt like any other install: Python packages, the llama.cpp build, the GPU.

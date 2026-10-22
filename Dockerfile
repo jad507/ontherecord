@@ -25,7 +25,7 @@ Path('/opt/llama/server').symlink_to(p)" && rm -rf /opt/llama/downloads
 
 COPY docker/machine.yaml /etc/ontherecord/machine.yaml
 ENV ONTHERECORD_CONFIG=/etc/ontherecord/machine.yaml HF_HOME=/data/huggingface PATH=/app/.venv/bin:$PATH \
-    ONTHERECORD_HOME=/data
+    ONTHERECORD_HOME=/data HOME=/data USER=ontherecord
 VOLUME /data
 EXPOSE 8765
 # 0.0.0.0 inside the container only; docker-compose.yml publishes it on the host's 127.0.0.1
