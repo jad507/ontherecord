@@ -161,7 +161,7 @@ class ExtractComments(Stage):
         blocks = meeting["blocks"]
         by_id = {b["block_id"]: b for b in blocks}
         budget = llm.n_ctx - settings["max_tokens"] - est_tokens(system) - 500
-        wins = windows(blocks, budget, settings["overlap"])
+        wins = [w for w in windows(blocks, budget, settings["overlap"]) if w]  # an empty meeting sends nothing
         raw, found, dropped = [], [], []
         for k, win in enumerate(wins):
             part = (f" (part {k + 1} of {len(wins)}, blocks {win[0]['block_id']}-{win[-1]['block_id']})"
@@ -202,7 +202,8 @@ class ExtractComments(Stage):
         tokens_out = sum(w.get("output_tokens") or 0 for w in raw)
         checks = [Check("parsed", "fail" if failed else "ok", f"{len(wins) - failed}/{len(wins)}",
                         f"{failed} of {len(wins)} answers did not parse" if failed else "every answer parsed"),
-                  Check("comments", "ok", len(rows), f"{len(rows)} public comments")]
+                  Check("comments", "ok", len(rows), f"{len(rows)} public comments") if blocks else
+                  Check("comments", "warn", 0, "the meeting has no speech blocks, so nothing was sent to the model")]
         if dropped:
             checks.append(Check("dropped_ids", "warn", len(dropped), f"model named {len(dropped)} block ids that do "
                                                                      "not exist"))
