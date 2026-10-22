@@ -423,7 +423,8 @@ def cmd_setup(args) -> int:
         return 0
     from .config import load_config
     cfg = load_config(cfg_path)
-    b.interactive_models(cfg.models_root or home / "models", choice, cfg_path.parent, cfg.python_for("audio"))
+    b.interactive_models(cfg.models_root or home / "models", choice, cfg.env_file or cfg_path.parent / "secrets.env",
+                         cfg.python_for("audio"))
     exe = Path(sys.executable).parent / ("ontherecord.exe" if os.name == "nt" else "ontherecord")
     icons = Path(__file__).resolve().parents[2] / "install"
     print(f"\nShortcut: {b.make_shortcut(exe, icons, hw['os'])}")
@@ -439,7 +440,7 @@ def cmd_models(args) -> int:
         token = args.token or os.environ.get("HF_TOKEN") or cfg.secret_env().get("HF_TOKEN")
         if args.token and args.save_token:
             from .config import user_config_dir
-            print(f"saved the token in {b.save_token((cfg.source or user_config_dir() / 'x').parent, args.token)}")
+            print(f"saved the token in {b.save_token(cfg.env_file or user_config_dir() / 'secrets.env', args.token)}")
         for name in args.names:
             if name not in b.MODELS:
                 raise SystemExit(f"no model {name!r}; the catalog: {', '.join(b.MODELS)}")

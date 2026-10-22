@@ -1,0 +1,15 @@
+# docker compose up -d            (CPU only)
+# docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d     (NVIDIA GPU; needs the NVIDIA
+#                                                                          Container Toolkit on the host)
+# Then open http://127.0.0.1:8765/ . Models: docker compose exec ontherecord ontherecord models get NAME
+services:
+  ontherecord:
+    build: .
+    image: ontherecord:0.1.0
+    ports:
+      - "127.0.0.1:8765:8765"   # this machine only; reach it from elsewhere through an SSH tunnel
+    volumes:
+      - ./data:/data            # workspace, archive, models, Hugging Face cache, secrets
+      # To import from cards and drives plugged into this (Linux) machine, also mount where they appear:
+      # - /media:/media:rslave
+    restart: unless-stopped

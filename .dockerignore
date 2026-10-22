@@ -1,0 +1,7 @@
+.venv
+workspace
+machine.yaml
+**/__pycache__
+.pytest_cache
+.git
+data

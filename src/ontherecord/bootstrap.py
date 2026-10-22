@@ -293,9 +293,9 @@ assistant:
     return f"wrote {path}"
 
 
-def save_token(cfg_dir: Path, token: str) -> Path:
-    """Keep the Hugging Face token in the secrets file, readable by this user only."""
-    p = cfg_dir / "secrets.env"
+def save_token(secrets_file: Path, token: str) -> Path:
+    """Keep the Hugging Face token in the secrets file (the machine config's env_file), readable by this user only."""
+    p = Path(secrets_file)
     p.parent.mkdir(parents=True, exist_ok=True)
     lines = [ln for ln in (p.read_text(encoding="utf-8").splitlines() if p.exists() else [])
              if not ln.startswith("HF_TOKEN=")]
@@ -336,7 +336,8 @@ def make_shortcut(exe: Path, icons: Path, os_name: str) -> str:
     return str(desktop / "ontherecord.desktop")
 
 
-def interactive_models(models_root: Path, choice: dict, cfg_dir: Path, python: str, ask=input, log=print) -> None:
+def interactive_models(models_root: Path, choice: dict, secrets_file: Path, python: str, ask=input,
+                       log=print) -> None:
     """Offer this machine's models, with sizes; ask for a Hugging Face token for the gated one."""
     want = [choice["assistant"], choice["extraction"], "whisper-large-v3", "pyannote-community-1"]
     status = model_status(models_root)
@@ -358,7 +359,7 @@ def interactive_models(models_root: Path, choice: dict, cfg_dir: Path, python: s
             "  2. Make a token (Read access) at https://huggingface.co/settings/tokens and paste it here.")
         token = ask("Token (or press Enter to skip the speaker model for now): ").strip() or None
         if token:
-            log(f"Saved in {save_token(cfg_dir, token)} (readable only by you; never written to a receipt).")
+            log(f"Saved in {save_token(secrets_file, token)} (readable only by you; never written to a receipt).")
     for n in todo:
         if MODELS[n].get("gated") and not token:
             log(f"Skipping {n}: no token.")
