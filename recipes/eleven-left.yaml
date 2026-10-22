@@ -1,0 +1,26 @@
+name: eleven-left
+description: >-
+  The 11 meetings (Oct 21 - Nov 25, 2025) that the ISLS 2027 paper left out of its corpus, done the intended way:
+  diarization and transcription both from the left channel. Their stereo channels are inverted copies, so the
+  averaged mono that pyannote read in May 2026 had canceled.
+source:
+  urls:
+    - https://www.youtube.com/watch?v=pkVzY-53sJI   # City Council Budget Hearing - October 21, 2025
+    - https://www.youtube.com/watch?v=Ffwwu-vf22M   # City Council Meeting - October 28, 2025
+    - https://www.youtube.com/watch?v=mPnWxdvDGQA   # Home Rule Transition Committee Meeting - October 29, 2025
+    - https://www.youtube.com/watch?v=nE5HiAtqwpA   # City Council Committee Meeting - November 3, 2025
+    - https://www.youtube.com/watch?v=VZRKugPc6QU   # City Council Ethics Code Work Session - November 6, 2025
+    - https://www.youtube.com/watch?v=X3DupuiqLts   # City Council Meeting - November 11, 2025
+    - https://www.youtube.com/watch?v=Wof-B6HAg2g   # Traffic Commission Meeting - November 11, 2025
+    - https://www.youtube.com/watch?v=W6aSdOttjPk   # City Council Budget Hearing - November 18, 2025
+    - https://www.youtube.com/watch?v=aZVPtb9bsEE   # City Council Special Meeting - November 20, 2025
+    - https://www.youtube.com/watch?v=Re1Nhz9g1aM   # City Council Meeting - November 25, 2025
+    - https://www.youtube.com/watch?v=WHN2o2S6X-Q   # Press Conference - Data Center Community Benefits Agreement
+stages:
+  - download: {}
+  - audio: {channel: left}
+  - diarize: {}
+  - transcribe: {}
+  - align: {}
+  - blocks: {}
+  - extract_comments: {}

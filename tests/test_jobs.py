@@ -86,3 +86,75 @@ def test_bad_recipe_is_refused_before_queueing(queue):
     with pytest.raises(RecipeError):
         q.submit("name: x\nsource:\n  files: [src.txt]\nstages:\n  - upper: {}\n", base)
     assert q.list() == []
+
+
+def test_only_one_dispatcher_runs_a_workspace(queue):
+    import os
+    import threading
+    q, base = queue
+    from ontherecord.jobs import write_json_atomic
+    # another live process on this host holds the heartbeat: this one must wait, not start jobs
+    write_json_atomic(q.cfg.workspace / "dispatcher.json",
+                      {"pid": os.getppid(), "host": __import__("socket").gethostname(), "kind": "serve",
+                       "t": time.time()})
+    rid = q.submit(recipe(0.1), base)
+    stop = threading.Event()
+    t = threading.Thread(target=q.dispatch_forever, kwargs={"every_s": 0.2, "stop": stop, "log": lambda m: None})
+    t.start()
+    time.sleep(1.5)
+    assert q.get(rid)["status"] == "queued"
+    (q.cfg.workspace / "dispatcher.json").unlink()  # the other dispatcher is gone: this one takes over
+    job = wait_for(q, rid, ("done", "failed"))
+    stop.set()
+    t.join()
+    assert job["status"] == "done"
+    assert q.dispatcher()["pid"] == os.getpid()
+
+
+def test_cli_submit_wait_and_cancel(queue, capsys):
+    import threading
+    from ontherecord import cli
+    q, base = queue
+    (base / "r.yaml").write_text(recipe(0.1), encoding="utf-8")
+    (base / "slow.yaml").write_text(recipe(120), encoding="utf-8")
+    ws = ["--config", "none", "--workspace", str(q.cfg.workspace)]
+    stop = threading.Event()
+    t = threading.Thread(target=q.dispatch_forever, kwargs={"every_s": 0.2, "stop": stop, "log": lambda m: None})
+    t.start()
+    try:
+        assert cli.main(ws + ["submit", str(base / "r.yaml"), "--wait", "--json"]) == 0
+        out = json.loads(capsys.readouterr().out)
+        assert out["status"] == "done" and out["problems"] == []
+        assert cli.main(ws + ["submit", str(base / "slow.yaml"), "--json"]) == 0
+        rid = json.loads(capsys.readouterr().out)["run_id"]
+        wait_for(q, rid, ("running",))
+        assert cli.main(ws + ["cancel", rid, "--grace", "20"]) == 0
+        assert capsys.readouterr().out.strip() == f"{rid}: cancelled"
+        assert cli.main(ws + ["wait", rid]) == 3
+        assert "cancelled" in capsys.readouterr().out
+        assert cli.main(ws + ["jobs", "--json"]) == 0
+        jobs = json.loads(capsys.readouterr().out)["jobs"]
+        assert [j["status"] for j in jobs] == ["cancelled", "done"]
+    finally:
+        stop.set()
+        t.join()
+
+
+def test_job_outlives_a_tree_kill_of_its_dispatcher(queue):
+    import subprocess
+    import sys
+    from ontherecord.runner import kill_tree
+    q, base = queue
+    rid = q.submit(recipe(120), base)
+    code = ("import sys, time; from pathlib import Path; from ontherecord.config import MachineConfig; "
+            "from ontherecord.jobs import JobQueue; JobQueue(MachineConfig(workspace=Path(sys.argv[1]))).start_next(); "
+            "time.sleep(120)")
+    dispatcher = subprocess.Popen([sys.executable, "-c", code, str(q.cfg.workspace)])
+    deadline = time.time() + 30
+    while time.time() < deadline and not q.get(rid)["pid"]:
+        time.sleep(0.2)
+    kill_tree(dispatcher.pid)  # what stopping a GUI server by its process tree does
+    pid = q.get(rid)["pid"]
+    assert pid and pid_alive(pid)
+    assert q.cancel(rid, grace_s=20, wait=True)["status"] == "cancelled"
+    assert not pid_alive(pid)

@@ -3,10 +3,19 @@
     ontherecord doctor                     what this machine has: config, Python environments, tools, GPU
     ontherecord stages                     every stage, its settings and their defaults
     ontherecord plan  RECIPE               what would be reused and what would run
-    ontherecord run   RECIPE               run it (Ctrl+C cancels cleanly)
+    ontherecord run   RECIPE               run it here and now, in the foreground (Ctrl+C cancels cleanly)
     ontherecord show  [RUN_ID]             a run's grid of items x stages, with check results
     ontherecord receipt RUN_ID ITEM STAGE  the full receipt behind one cell
-    ontherecord serve                      the GUI, at http://127.0.0.1:8765
+
+  The job queue (the same one the GUI uses; one job at a time per workspace):
+    ontherecord submit RECIPE [--wait]     queue a run; prints its run id
+    ontherecord jobs                       queued, running and finished jobs
+    ontherecord wait  RUN_ID               block until a job ends; exit 0 done, 1 failed, 3 cancelled
+    ontherecord cancel RUN_ID              cancel a queued or running job, and wait until it has stopped
+    ontherecord serve                      the GUI at http://127.0.0.1:8765, which also runs the queue
+    ontherecord dispatch                   run the queue without the GUI
+
+  plan, show, jobs, submit and wait take --json for output a script or an agent can parse.
 """
 from __future__ import annotations
 
@@ -14,6 +23,7 @@ import argparse
 import json
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from . import stages as registry
@@ -91,12 +101,25 @@ def cmd_stages(args) -> int:
     return 0
 
 
+LEGEND = "= reused   > runs   ? runs unless its inputs come out byte-identical   x blocked by a failed check"
+
+
 def cmd_plan(args) -> int:
     recipe = load_recipe(args.recipe)
-    runner = Runner(recipe, config_from(args))
+    cells = Runner(recipe, config_from(args)).plan()
+    if args.json:
+        print(json.dumps({"name": recipe.name, "stages": [s.info() for s in recipe.stages], "cells": cells},
+                         indent=1))
+        return 0
     print(f"{recipe.name}: {len(recipe.items)} item(s)\n")
-    print(grid([s.name for s in recipe.stages], runner.plan()))
-    print("\n= reused   > runs   ? runs unless its inputs come out byte-identical   x blocked by a failed check")
+    print(grid([s.name for s in recipe.stages], cells))
+    print("\n" + LEGEND)
+    for s in recipe.stages:
+        if s.mixed:
+            print(f"\n! {s.name} takes inputs that trace back to different stages making the same artifact: "
+                  + "; ".join(f"{a} from {', '.join(steps)}" for a, steps in s.mixed.items())
+                  + ". If those files differ, its same_source check fails"
+                  + (" and it runs anyway (on_fail: continue)." if s.on_fail == "continue" else " and it is blocked."))
     return 0
 
 
@@ -118,20 +141,36 @@ def _run_record(store: Store, run_id: str | None) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def problems(store: Store, rec: dict) -> list[dict]:
+    """Every warn or fail check and every failed or blocked cell in a run, flattened."""
+    out = []
+    for item, row in rec["cells"].items():
+        for stage, cell in row.items():
+            checks = list(cell.get("run_checks", []))
+            if cell.get("receipt") and cell.get("checks") in ("warn", "fail"):
+                checks += json.loads((store.root / cell["receipt"]).read_text(encoding="utf-8"))["checks"]
+            for c in checks:
+                if c["status"] != "ok":
+                    out.append({"item": item, "stage": stage, "kind": "check", "status": c["status"],
+                                "name": c["name"], "message": c["message"]})
+            if cell.get("status") in ("failed", "blocked"):
+                out.append({"item": item, "stage": stage, "kind": cell["status"], "status": cell["status"],
+                            "message": (cell.get("error") or cell.get("reason") or "").strip()[-400:]})
+    return out
+
+
 def cmd_show(args) -> int:
     store = Store(config_from(args).workspace)
     rec = _run_record(store, args.run_id)
+    found = problems(store, rec)
+    if args.json:
+        print(json.dumps({**rec, "problems": found}, indent=1, ensure_ascii=False))
+        return 0
     print(f"{rec['run_id']}  {rec['status']}  on {rec['host']}  ({rec['created_utc']} -> {rec['finished_utc']})\n")
     print(grid([s["name"] for s in rec["stages"]], rec["cells"]))
-    for item, row in rec["cells"].items():
-        for stage, cell in row.items():
-            if cell.get("receipt") and cell.get("checks") in ("warn", "fail"):
-                r = json.loads((store.root / cell["receipt"]).read_text(encoding="utf-8"))
-                for c in r["checks"]:
-                    if c["status"] != "ok":
-                        print(f"  {item} {stage}: {c['status'].upper()} {c['name']}: {c['message']}")
-            if cell.get("status") in ("failed", "blocked"):
-                print(f"  {item} {stage}: {cell['status']}: {(cell.get('error') or cell.get('reason') or '').strip()[-400:]}")
+    for p in found:
+        label = f"{p['status'].upper()} {p['name']}" if p["kind"] == "check" else p["status"]
+        print(f"  {p['item']} {p['stage']}: {label}: {p['message']}")
     return 0
 
 
@@ -161,6 +200,112 @@ def cmd_run_job(args) -> int:
     return run_job(config_from(args), args.run_id)
 
 
+def cmd_dispatch(args) -> int:
+    from .jobs import JobQueue
+    q = JobQueue(config_from(args))
+    print(f"running the job queue in {q.cfg.workspace} (Ctrl+C stops the dispatcher; a running job carries on)",
+          file=sys.stderr)
+    try:
+        q.dispatch_forever(kind="dispatch")
+    except KeyboardInterrupt:
+        pass
+    return 0
+
+
+def cmd_submit(args) -> int:
+    from .jobs import JobQueue
+    q = JobQueue(config_from(args))
+    path = Path(args.recipe).resolve()
+    run_id = q.submit(path.read_text(encoding="utf-8"), path.parent)
+    runner = q.dispatcher()
+    if args.json and not args.wait:
+        print(json.dumps({"run_id": run_id, "dispatcher": runner}))
+    elif not args.json:
+        print(run_id)
+    if not runner:
+        print("note: nothing is running this workspace's queue, so the job will wait. Start `ontherecord serve` "
+              "(the GUI) or `ontherecord dispatch`.", file=sys.stderr)
+    return _wait(q, run_id, args.json) if args.wait else 0
+
+
+def cmd_wait(args) -> int:
+    from .jobs import JobQueue
+    return _wait(JobQueue(config_from(args)), args.run_id, args.json)
+
+
+EXIT = {"done": 0, "failed": 1, "cancelled": 3}
+
+
+def _wait(q, run_id: str, as_json: bool) -> int:
+    """Follow a job until it ends, with one progress line on stderr whenever its cells change."""
+    from .jobs import FINAL
+    last, warned = None, False
+    while True:
+        job = q.get(run_id)
+        if not job:
+            raise SystemExit(f"no job {run_id}")
+        rec_path = q.store.run_dir(run_id) / "run.json"
+        rec = json.loads(rec_path.read_text(encoding="utf-8")) if rec_path.is_file() else None
+        if rec:
+            counts: dict[str, int] = {}
+            for row in rec["cells"].values():
+                for c in row.values():
+                    counts[c["status"]] = counts.get(c["status"], 0) + 1
+            now = ", ".join(f"{v} {k}" for k, v in sorted(counts.items()))
+            if now != last:
+                print(f"[{time.strftime('%H:%M:%S')}] {run_id}: {job['status']}: {now}", file=sys.stderr)
+                last = now
+        if job["status"] in FINAL:
+            break
+        if job["status"] == "queued" and not q.dispatcher() and not warned:
+            print("note: nothing is running the queue; start `ontherecord serve` or `ontherecord dispatch`",
+                  file=sys.stderr)
+            warned = True
+        time.sleep(5)
+        q.reconcile()
+    if rec and as_json:
+        print(json.dumps({**rec, "problems": problems(q.store, rec)}, indent=1, ensure_ascii=False))
+    elif rec:
+        print(grid([s["name"] for s in rec["stages"]], rec["cells"]))
+        for p in problems(q.store, rec):
+            label = f"{p['status'].upper()} {p['name']}" if p["kind"] == "check" else p["status"]
+            print(f"  {p['item']} {p['stage']}: {label}: {p['message']}")
+        print(f"\nrun {run_id}: {job['status']}")
+    return EXIT.get(job["status"], 1)
+
+
+def cmd_jobs(args) -> int:
+    from .jobs import JobQueue
+    q = JobQueue(config_from(args))
+    jobs = q.list(limit=args.limit)
+    for j in jobs:
+        j.pop("recipe_text", None)
+        rec_path = q.store.run_dir(j["run_id"]) / "run.json"
+        cells = json.loads(rec_path.read_text(encoding="utf-8"))["cells"] if rec_path.is_file() else {}
+        flat = [c["status"] for row in cells.values() for c in row.values()]
+        j["cells_total"], j["cells_finished"] = len(flat), sum(s in ("ran", "cached") for s in flat)
+    if args.json:
+        print(json.dumps({"dispatcher": q.dispatcher(), "jobs": jobs}, indent=1))
+        return 0
+    d = q.dispatcher()
+    print(f"queue run by {d['kind']} (pid {d['pid']} on {d['host']})" if d else "nothing is running the queue")
+    for j in jobs:
+        prog = f"{j['cells_finished']}/{j['cells_total']}" if j["cells_total"] else ""
+        print(f"  {j['run_id']:44} {j['status']:10} {prog:>8}  {j['created_utc']}")
+    return 0
+
+
+def cmd_cancel(args) -> int:
+    from .jobs import JobQueue
+    q = JobQueue(config_from(args))
+    try:
+        job = q.cancel(args.run_id, grace_s=args.grace, wait=True)
+    except KeyError:
+        raise SystemExit(f"no job {args.run_id}")
+    print(f"{args.run_id}: {job['status']}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="ontherecord", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -171,6 +316,7 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("stages").set_defaults(fn=cmd_stages)
     p = sub.add_parser("plan")
     p.add_argument("recipe")
+    p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_plan)
     p = sub.add_parser("run")
     p.add_argument("recipe")
@@ -178,6 +324,7 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(fn=cmd_run)
     p = sub.add_parser("show")
     p.add_argument("run_id", nargs="?")
+    p.add_argument("--json", action="store_true", help="the whole run record, plus a flat list of problems")
     p.set_defaults(fn=cmd_show)
     p = sub.add_parser("receipt")
     p.add_argument("run_id")
@@ -188,6 +335,24 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("serve")
     p.add_argument("--port", type=int, default=8765)
     p.set_defaults(fn=cmd_serve)
+    sub.add_parser("dispatch", help="run the job queue without the GUI").set_defaults(fn=cmd_dispatch)
+    p = sub.add_parser("submit", help="queue a recipe as a job")
+    p.add_argument("recipe")
+    p.add_argument("--wait", action="store_true", help="then follow it until it ends (exit code as for wait)")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(fn=cmd_submit)
+    p = sub.add_parser("wait", help="block until a job ends; exit 0 done, 1 failed, 3 cancelled")
+    p.add_argument("run_id")
+    p.add_argument("--json", action="store_true", help="print the final run record, plus a flat list of problems")
+    p.set_defaults(fn=cmd_wait)
+    p = sub.add_parser("jobs", help="the job queue")
+    p.add_argument("--limit", type=int, default=30)
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(fn=cmd_jobs)
+    p = sub.add_parser("cancel", help="cancel a job and wait until it has stopped")
+    p.add_argument("run_id")
+    p.add_argument("--grace", type=float, default=60, help="seconds to let it stop before killing it")
+    p.set_defaults(fn=cmd_cancel)
     p = sub.add_parser("run-job", help="(used by the job queue) run a queued job")
     p.add_argument("run_id")
     p.set_defaults(fn=cmd_run_job)

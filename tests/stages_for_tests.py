@@ -49,3 +49,16 @@ class Slow(Stage):
         time.sleep(settings["seconds"])
         (out / "slow.txt").write_text("done")
         return Result(files={"slow": "slow.txt"})
+
+
+class Pair(Stage):
+    """Needs two inputs, like align (speaker turns + words), to exercise the same_source check."""
+    name = "pair"
+    needs = ("text", "count")
+    makes = ("pair",)
+    settings = {}
+
+    def run(self, item, inputs, out: Path, settings, state, ctx) -> Result:
+        joined = Path(inputs["text"]).read_text(encoding="utf-8") + " | " + Path(inputs["count"]).read_text("utf-8")
+        (out / "pair.txt").write_text(joined, encoding="utf-8")
+        return Result(files={"pair": "pair.txt"})

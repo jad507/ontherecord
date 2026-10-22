@@ -18,6 +18,20 @@ A setting left out takes the stage's default, and the default is written into th
 so a later change of default cannot silently change what an old run means. A stage entry may also carry
 `on_fail: continue`, which lets later stages run on an item even when one of this stage's checks failed (to
 measure the damage rather than stop at it).
+
+Each input comes from the latest earlier stage that makes it. To wire it differently, name a stage with `as:` and
+point a later stage at it with `from:`. This recipe reproduces how 11 meetings in the ISLS 2027 corpus were made,
+with speaker turns from averaged audio and words from the left channel:
+
+      - audio: {channel: average}
+        as: audio_average
+      - audio: {channel: left}
+      - diarize: {}
+        from: {audio: audio_average}
+      - transcribe: {}          # the latest audio: left
+
+The runner then flags any stage whose inputs trace back to different bytes of the same artifact (here: align, whose
+speaker turns and words come from two different audio files).
 """
 from __future__ import annotations
 
@@ -50,6 +64,17 @@ class StageSpec:
     key_settings: dict               # what the cache key hashes: file settings as their sha256
     record_settings: dict            # what receipts and the run record show: file settings as name, hash and text
     on_fail: str = "stop"
+    inputs_from: dict = field(default_factory=dict)   # needed artifact -> name of the earlier stage that makes it
+    mixed: dict = field(default_factory=dict)         # artifact -> the 2+ earlier stages this step's inputs trace to
+
+    @property
+    def stage(self) -> str:
+        """The stage type (what the store and cache key use); `name` is this step's name within the recipe."""
+        return self.cls.name
+
+    def info(self) -> dict:
+        return {"name": self.name, "stage": self.stage, "label": self.cls.label, "from": self.inputs_from,
+                "mixed": self.mixed, "on_fail": self.on_fail}
 
 
 @dataclass
@@ -140,9 +165,14 @@ def resolve_settings(cls: type[Stage], given: dict, base: Path) -> tuple[dict, d
     return run, key, record
 
 
+STEP_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,47}$")
+
+
 def parse_stages(entries: list, base: Path) -> list[StageSpec]:
     specs: list[StageSpec] = []
-    made: set[str] = set()
+    by_name: dict[str, StageSpec] = {}
+    latest: dict[str, str] = {}                  # artifact -> the latest step that makes it
+    upstream: dict[str, dict[str, set]] = {}     # step -> artifact -> every step upstream of it that made one
     for i, entry in enumerate(entries or []):
         if isinstance(entry, str):
             entry = {entry: {}}
@@ -150,20 +180,48 @@ def parse_stages(entries: list, base: Path) -> list[StageSpec]:
         if len(names) != 1:
             raise RecipeError(f"stage entry {i + 1} must name exactly one stage ({registry.names()}): {entry}")
         name = names[0]
-        extra = set(entry) - {name, "on_fail"}
+        extra = set(entry) - {name, "on_fail", "as", "from"}
         if extra:
             raise RecipeError(f"stage entry {name}: unknown key(s) {sorted(extra)}")
         cls = registry.get(name)
-        missing = [n for n in cls.needs if n not in made]
-        if missing:
-            raise RecipeError(f"{name} needs {missing}, which no earlier stage makes")
+        step = str(entry.get("as") or name)
+        if not STEP_NAME.match(step):
+            raise RecipeError(f"{name}: as: {step!r} must be a letter then letters, digits, _ or -")
+        if step != name and step in registry.names():
+            raise RecipeError(f"{name}: as: {step!r} is the name of another stage type")
+        if step in by_name:
+            raise RecipeError(f"two stages are named {step!r}; give the second one its own name with as:")
+        wiring = entry.get("from") or {}
+        if not isinstance(wiring, dict) or set(wiring) - set(cls.needs):
+            raise RecipeError(f"{step}: from: maps the inputs it needs ({list(cls.needs)}) to earlier stages; "
+                              f"got {wiring}")
+        inputs_from: dict[str, str] = {}
+        for n in cls.needs:
+            src = wiring.get(n, latest.get(n))
+            if src is None:
+                raise RecipeError(f"{step} needs {n}, which no earlier stage makes")
+            if src not in by_name or n not in by_name[src].cls.makes:
+                raise RecipeError(f"{step}: from {n}: {src!r} is not an earlier stage that makes {n}")
+            inputs_from[n] = str(src)
+        ups: dict[str, set] = {}
+        already_mixed = set()
+        for n, src in inputs_from.items():
+            for art, steps in [*upstream[src].items(), (n, {src})]:
+                ups.setdefault(art, set()).update(steps)
+                if len(steps) > 1:
+                    already_mixed.add(art)
         given = entry[name] or {}
         run, key, record = resolve_settings(cls, given, base)
         on_fail = entry.get("on_fail", "stop")
         if on_fail not in ("stop", "continue"):
-            raise RecipeError(f"{name}: on_fail must be 'stop' or 'continue'")
-        specs.append(StageSpec(name, cls, given, run, key, record, on_fail))
-        made.update(cls.makes)
+            raise RecipeError(f"{step}: on_fail must be 'stop' or 'continue'")
+        # Flagged only where the mixing first happens; the stages after it inherit it.
+        spec = StageSpec(step, cls, given, run, key, record, on_fail, inputs_from,
+                         {a: sorted(s) for a, s in ups.items() if len(s) > 1 and a not in already_mixed})
+        specs.append(spec)
+        by_name[step] = spec
+        upstream[step] = ups
+        latest.update({m: step for m in cls.makes})
     if not specs:
         raise RecipeError("the recipe lists no stages")
     return specs

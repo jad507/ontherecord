@@ -20,7 +20,7 @@ HERE = Path(__file__).parent
 @pytest.fixture(autouse=True)
 def test_stages(monkeypatch):
     monkeypatch.setenv("ONTHERECORD_STAGES", "upper=stages_for_tests:Upper;count=stages_for_tests:Count;"
-                                             "slow=stages_for_tests:Slow")
+                                             "slow=stages_for_tests:Slow;pair=stages_for_tests:Pair")
     monkeypatch.setenv("PYTHONPATH", str(HERE))
     monkeypatch.syspath_prepend(str(HERE))
 
@@ -138,5 +138,56 @@ def test_cancel_leaves_no_finished_looking_entry(ws):
     ("  - nosuchstage: {}\n", "exactly one stage"),
 ])
 def test_recipe_errors(ws, stages, msg):
+    with pytest.raises(RecipeError, match=msg):
+        recipe(ws, stages)
+
+
+# ---------------------------------------------------------------- wiring: as / from, and the same_source check
+MIXED = ("  - download: {}\n  - upper: {case: lower}\n    as: lower\n  - upper: {}\n"
+         "  - count: {}\n    from: {text: lower}\n  - pair: {}\n")
+
+
+def test_from_wires_an_earlier_named_stage(ws):
+    rec = run(ws, MIXED.replace("  - pair: {}\n", ""))
+    assert statuses(rec) == {"download": "ran", "lower": "ran", "upper": "ran", "count": "ran"}
+    count = json.loads((ws / "workspace" / rec["cells"]["src"]["count"]["receipt"]).read_text())
+    assert count["inputs"]["text"]["from_step"] == "lower"
+    lower = json.loads((ws / "workspace" / rec["cells"]["src"]["lower"]["receipt"]).read_text())
+    assert count["inputs"]["text"]["sha256"] == lower["outputs"]["text"]["sha256"]
+
+
+def test_inputs_from_different_files_of_one_artifact_are_blocked(ws):
+    r = recipe(ws, MIXED)
+    assert r.stages[-1].mixed == {"text": ["lower", "upper"]}  # pair: count came from lower, text from upper
+    rec = Runner(r, MachineConfig(workspace=ws / "workspace"), log=lambda *_: None).execute()
+    cell = rec["cells"]["src"]["pair"]
+    assert cell["status"] == "blocked" and cell["checks"] == "fail"
+    assert cell["run_checks"][0]["name"] == "same_source"
+    assert set(cell["run_checks"][0]["value"]["text"].values()) == {"lower", "upper"}
+
+
+def test_on_fail_continue_runs_a_mixed_stage_and_records_the_check(ws):
+    rec = run(ws, MIXED.replace("  - pair: {}\n", "  - pair: {}\n    on_fail: continue\n"))
+    cell = rec["cells"]["src"]["pair"]
+    assert cell["status"] == "ran" and cell["checks"] == "fail"
+    assert cell["run_checks"][0]["status"] == "fail"
+
+
+def test_two_steps_that_make_identical_bytes_are_not_mixed(ws):
+    # 'note' is not in the key, so both upper steps share one store entry: the same text, not a mix
+    rec = run(ws, MIXED.replace("{case: lower}", "{note: twin}").replace("as: lower", "as: twin")
+              .replace("{text: lower}", "{text: twin}"))
+    assert rec["cells"]["src"]["pair"]["status"] == "ran"
+    assert "run_checks" not in rec["cells"]["src"]["pair"]
+    assert rec["cells"]["src"]["upper"]["status"] == "cached"  # the second step reused the first one's output
+
+
+@pytest.mark.parametrize("stages, msg", [
+    ("  - download: {}\n  - upper: {}\n  - upper: {}\n", "two stages are named 'upper'"),
+    ("  - download: {}\n  - upper: {}\n    as: count\n", "name of another stage type"),
+    ("  - download: {}\n  - upper: {}\n  - count: {}\n    from: {text: nowhere}\n", "not an earlier stage"),
+    ("  - download: {}\n  - upper: {}\n  - count: {}\n    from: {media: download}\n", "maps the inputs it needs"),
+])
+def test_wiring_errors(ws, stages, msg):
     with pytest.raises(RecipeError, match=msg):
         recipe(ws, stages)

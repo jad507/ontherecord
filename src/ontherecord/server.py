@@ -47,7 +47,7 @@ def create_app(cfg: MachineConfig, dispatch: bool = True) -> FastAPI:
     prompts_dir.mkdir(parents=True, exist_ok=True)
     stop = threading.Event()
     if dispatch:
-        threading.Thread(target=queue.dispatch_forever, kwargs={"stop": stop}, daemon=True).start()
+        threading.Thread(target=queue.dispatch_forever, kwargs={"stop": stop, "kind": "serve"}, daemon=True).start()
 
     def recipe_paths() -> list[Path]:
         seen, out = set(), []
@@ -154,12 +154,12 @@ def create_app(cfg: MachineConfig, dispatch: bool = True) -> FastAPI:
     def validate(body: RecipeIn):
         r = parse(body.text)
         return {"name": r.name, "items": [i.as_dict() for i in r.items],
-                "stages": [{"name": s.name, "settings": s.record_settings, "on_fail": s.on_fail} for s in r.stages]}
+                "stages": [{**s.info(), "settings": s.record_settings} for s in r.stages]}
 
     @app.post("/api/plan")
     def plan(body: RecipeIn):
         r = parse(body.text)
-        return {"stages": [s.name for s in r.stages], "cells": Runner(r, cfg).plan()}
+        return {"stages": [s.info() for s in r.stages], "cells": Runner(r, cfg).plan()}
 
     @app.post("/api/jobs")
     def submit(body: RecipeIn):

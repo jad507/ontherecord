@@ -81,21 +81,38 @@ function readWidget(stageIdx, key, spec) {
   return el.value;
 }
 
+const stepName = (st) => st.as || st.name;
+
 function renderStages() {
-  const made = new Set();
+  const producers = {};  // artifact -> names of the earlier stages that make it, in order
+  const typeCount = {};
+  form.stages.forEach((st) => { typeCount[st.name] = (typeCount[st.name] || 0) + 1; });
   $("#stages").innerHTML = form.stages.map((st, i) => {
     const d = DEFS[st.name];
-    const missing = d.needs.filter((n) => !made.has(n));
-    d.makes.forEach((m) => made.add(m));
+    const from = st.from || {};
+    const missing = d.needs.filter((n) => !(producers[n] || []).length);
+    const wiring = d.needs.filter((n) => (producers[n] || []).length > 1 || from[n]).map((n) => {
+      const opts = producers[n] || [];
+      const latest = opts[opts.length - 1];
+      const bad = from[n] && !opts.includes(from[n]);
+      return `<label>${esc(n)} from <select id="from-${i}-${esc(n)}">
+          <option value="">the latest (${esc(latest || "none")})</option>
+          ${opts.map((o) => `<option ${from[n] === o ? "selected" : ""}>${esc(o)}</option>`).join("")}
+          ${bad ? `<option selected value="${esc(from[n])}">${esc(from[n])} (not an earlier stage)</option>` : ""}</select></label>`;
+    }).join("");
+    const named = typeCount[st.name] > 1 || (st.as && st.as !== st.name);
+    d.makes.forEach((m) => (producers[m] = producers[m] || []).push(stepName(st)));
     const rows = Object.entries(d.settings).map(([k, spec]) => settingWidget(i, k, spec, k in st.settings ? st.settings[k] : spec.default)).join("");
     return `<div class="stage">
       <div class="stage-head"><span class="num">${i + 1}</span><span class="title">${esc(d.label)}</span>
+        ${named ? `<input class="step-name" id="as-${i}" value="${esc(stepName(st))}" title="This stage's name in the run, so later stages can take their input from it">` : ""}
         <span class="flow">${d.needs.length ? esc(d.needs.join(", ")) + " → " : ""}${esc(d.makes.join(", "))}${d.gpu ? " · GPU" : ""}</span>
         <span class="tools">
           <button class="small secondary" data-move="${i}:-1" title="Move up">↑</button>
           <button class="small secondary" data-move="${i}:1" title="Move down">↓</button>
           <button class="small danger" data-remove="${i}" title="Remove">✕</button></span></div>
       ${missing.length ? `<div class="stage-doc" style="color:var(--fail)">Needs ${esc(missing.join(", "))} from an earlier stage.</div>` : ""}
+      ${wiring ? `<div class="wiring">${wiring}</div>` : ""}
       <div class="stage-doc">${esc(d.doc)}</div>
       <div class="settings">${rows}
         <label class="wide"><input type="checkbox" id="onfail-${i}" ${st.on_fail === "continue" ? "checked" : ""}>Run later stages even when one of this stage's checks fails (to measure the damage)</label>
@@ -118,6 +135,10 @@ function readForm() {
     }
     st.settings = s;
     st.on_fail = $(`#onfail-${i}`)?.checked ? "continue" : "stop";
+    const as = $(`#as-${i}`);
+    if (as) st.as = as.value.trim() === st.name ? "" : as.value.trim();
+    st.from = {};
+    for (const n of d.needs) { const sel = $(`#from-${i}-${n}`); if (sel && sel.value) st.from[n] = sel.value; }
   });
 }
 
@@ -133,6 +154,8 @@ function toYaml() {
   lines.push("stages:");
   for (const st of form.stages) {
     lines.push(`  - ${st.name}: ${JSON.stringify(st.settings).replace(/":/g, '": ')}`);
+    if (st.as && st.as !== st.name) lines.push(`    as: ${JSON.stringify(st.as)}`);
+    if (Object.keys(st.from || {}).length) lines.push(`    from: ${JSON.stringify(st.from).replace(/":/g, '": ')}`);
     if (st.on_fail === "continue") lines.push("    on_fail: continue");
   }
   return lines.join("\n") + "\n";
@@ -164,7 +187,11 @@ $("#stages").addEventListener("click", (e) => {
 });
 $("#add-btn").addEventListener("click", () => {
   readForm();
-  form.stages.push({ name: $("#add-stage").value, settings: {}, on_fail: "stop" });
+  const type = $("#add-stage").value;
+  const taken = new Set(form.stages.map(stepName));
+  let as = "";
+  for (let k = 2; taken.has(as || type); k++) as = `${type}_${k}`;
+  form.stages.push({ name: type, settings: {}, on_fail: "stop", as, from: {} });
   renderStages();
 });
 
@@ -199,7 +226,7 @@ async function loadRecipe(file) {
     for (const entry of raw.stages || []) {
       const e = typeof entry === "string" ? { [entry]: {} } : entry;
       const name = Object.keys(e).find((k) => DEFS[k]);
-      if (name) form.stages.push({ name, settings: e[name] || {}, on_fail: e.on_fail || "stop" });
+      if (name) form.stages.push({ name, settings: e[name] || {}, on_fail: e.on_fail || "stop", as: e.as || "", from: e.from || {} });
     }
     $("#r-name").value = form.name; $("#r-desc").value = form.description;
     $("#r-urls").value = form.urls; $("#r-files").value = form.files;
@@ -240,11 +267,20 @@ async function loadRecipeList() {
 }
 
 // ---------------------------------------------------------------- grid (plan and results)
+function colHead(s) {
+  const type = s.stage || s.name;
+  const label = s.label || DEFS[type]?.label || s.name;
+  const wired = Object.entries(s.from || {}).filter(([n, src]) => src !== n && !(DEFS[src] && DEFS[src].makes.includes(n)));
+  return esc(label) + (s.name !== type ? `<br><span class="step">${esc(s.name)}</span>` : "")
+    + (wired.length ? `<br><span class="step">${wired.map(([n, src]) => `${esc(n)} ← ${esc(src)}`).join(", ")}</span>` : "");
+}
 function gridHtml(stages, cells, clickable) {
-  const head = `<tr><th>item</th>${stages.map((s) => `<th>${esc(DEFS[s]?.label || s)}</th>`).join("")}</tr>`;
-  const rows = Object.entries(cells).map(([item, row]) => `<tr><td class="item">${esc(item)}</td>${stages.map((s) => {
+  const head = `<tr><th>item</th>${stages.map((s) => `<th>${colHead(s)}</th>`).join("")}</tr>`;
+  const rows = Object.entries(cells).map(([item, row]) => `<tr><td class="item">${esc(item)}</td>${stages.map(({ name: s }) => {
     const c = row[s] || {};
-    const chk = c.checks && c.checks !== "ok" ? ` <span class="chk-${c.checks}">● ${c.checks}</span>` : "";
+    const mixed = c.mixed ? Object.entries(c.mixed).map(([a, st]) => `${a} from ${st.join(" and ")}`).join("; ") : "";
+    const chk = (c.checks && c.checks !== "ok" ? ` <span class="chk-${c.checks}">● ${c.checks}</span>` : "")
+      + (mixed && c.checks !== "fail" ? ` <span class="chk-warn" title="Its inputs trace back to ${esc(mixed)}; if those files differ, its same_source check fails">⚠ mixed</span>` : "");
     const t = c.elapsed_s != null ? fmtDur(c.elapsed_s) : (c.status === "running" ? "…" : "");
     const attrs = clickable ? `data-item="${esc(item)}" data-stage="${esc(s)}"` : "";
     return `<td><span class="cell c-${esc(c.status)}" ${attrs}><span class="s">${esc(STATUS_TEXT[c.status] || c.status)}</span>${chk}<br><span class="t">${esc(t)}</span></span></td>`;
@@ -253,7 +289,7 @@ function gridHtml(stages, cells, clickable) {
 }
 function legendHtml(plan) {
   return plan
-    ? `<div class="legend"><span><b>reused</b>: same settings and same input bytes as an earlier output</span><span><b>will run</b>: something it depends on changed</span><span><b>maybe</b>: runs unless the stage before it produces byte-identical output</span><span><b>blocked</b>: an earlier check failed</span></div>`
+    ? `<div class="legend"><span><b>reused</b>: same settings and same input bytes as an earlier output</span><span><b>will run</b>: something it depends on changed</span><span><b>maybe</b>: runs unless the stage before it produces byte-identical output</span><span><b>blocked</b>: an earlier check failed</span><span><b>⚠ mixed</b>: its inputs come from two different stages that make the same thing</span></div>`
     : `<div class="legend"><span>Click any cell for its receipt.</span><span><b>reused</b>: taken from an earlier run</span><span><b>ran</b>: computed in this run</span><span>● warn / fail: a check on that output</span></div>`;
 }
 
@@ -318,11 +354,11 @@ $("#runs").addEventListener("click", (e) => {
 async function showRun(id) {
   const r = await api(`/api/runs/${encodeURIComponent(id)}`).catch(() => null);
   if (!r) return;
-  const stageNames = r.stages.map((s) => s.name);
+  const stageCols = r.stages;
   $("#run-head").innerHTML = `<h3>${esc(r.name)} <span class="badge b-${esc(r.status)}">${esc(r.status)}</span></h3>
     <div class="muted">${esc(r.description || "")}</div>
     <div class="muted" style="font-size:12px;margin:4px 0 10px">${esc(r.run_id)} · ${esc(r.host)}${r.gpu ? " · " + esc(r.gpu.name) : ""} · started ${esc(fmtTime(r.created_utc))}${r.finished_utc ? " · took " + esc(fmtDur(secsBetween(r.created_utc, r.finished_utc))) : ""}</div>`;
-  $("#grid").innerHTML = gridHtml(stageNames, r.cells, true) + legendHtml(false);
+  $("#grid").innerHTML = gridHtml(stageCols, r.cells, true) + legendHtml(false);
   clearTimeout(runTimer);
   if (r.status === "running" && $("#tab-results").classList.contains("active")) runTimer = setTimeout(() => showRun(id), 3000);
 }
@@ -359,8 +395,9 @@ function renderReceipt(r, cell) {
   const d = DEFS[r.stage] || { settings: {} };
   const defaults = Object.fromEntries(Object.entries(d.settings).map(([k, s]) => [k, s.default]));
   const env = r.environment || {};
-  const checks = (r.checks || []).map((c) => `<li><span class="badge b-${esc(c.status)}">${esc(c.status)}</span> <b>${esc(c.name)}</b>: ${esc(c.message)}</li>`).join("") || `<li class="muted">This stage has no checks.</li>`;
-  const inputs = Object.entries(r.inputs || {}).map(([k, v]) => `<tr><td>${esc(k)}</td><td class="v">from ${esc(v.from_stage)} <span class="hash">${esc((v.sha256 || "").slice(0, 16))}</span></td></tr>`).join("") || `<tr><td colspan="2" class="muted">${esc(r.item.url || r.item.path || "")}</td></tr>`;
+  const li = (c) => `<li><span class="badge b-${esc(c.status)}">${esc(c.status)}</span> <b>${esc(c.name)}</b>: ${esc(c.message)}</li>`;
+  const checks = [...(cell.run_checks || []), ...(r.checks || [])].map(li).join("") || `<li class="muted">This stage has no checks.</li>`;
+  const inputs = Object.entries(r.inputs || {}).map(([k, v]) => `<tr><td>${esc(k)}</td><td class="v">from ${esc(v.from_step || v.from_stage)} <span class="hash">${esc((v.sha256 || "").slice(0, 16))}</span></td></tr>`).join("") || `<tr><td colspan="2" class="muted">${esc(r.item.url || r.item.path || "")}</td></tr>`;
   const outputs = Object.entries(r.outputs || {}).map(([k, v]) => `<tr><td>${esc(k)}</td><td class="v">${esc(v.file.split(/[\\/]/).pop())} · ${(v.bytes / 1024).toFixed(0)} KB <span class="hash">${esc(v.sha256.slice(0, 16))}</span>
     <button class="small secondary" data-preview="${esc(k)}">Open</button></td></tr>`).join("");
   const pk = Object.entries(env.packages || {}).filter(([, v]) => v).map(([k, v]) => `${k} ${v}`).join(", ");

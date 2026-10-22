@@ -19,8 +19,9 @@ class Download(Stage):
     packages = ("yt-dlp",)
     settings = {
         "format": Setting("bestaudio/best", "yt-dlp format selector. The hands_on_dl corpus used "
-                          "'bestvideo*+bestaudio/best' (merged mp4); audio-only is the same audio stream at a "
-                          "fraction of the size."),
+                          "'bestvideo*+bestaudio/best' (merged mp4). Audio-only carries the same audio stream at "
+                          "a fraction of the size, but it does not decode to identical samples: on one meeting the "
+                          "audio came out 13.5 ms shorter, enough to change some Whisper segments."),
         "captions": Setting(True, "Also save YouTube's own captions (English), as a reference transcript."),
     }
 

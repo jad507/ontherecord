@@ -1,19 +1,24 @@
-"""The job queue behind the GUI: submit a recipe, run jobs one at a time, cancel them.
+"""The job queue behind the GUI and the command line: submit a recipe, run jobs one at a time, cancel them.
 
 Jobs live in SQLite in the workspace (`jobs.db`), so the queue survives the GUI being closed or restarted. Each job
-runs as its own process (`python -m ontherecord.cli run-job RUN_ID`), started in a new process group, so it keeps
-going when the browser tab closes and can be cancelled as a unit.
+runs as its own process (`python -m ontherecord.cli run-job RUN_ID`), detached from whatever started it and in its
+own process group, so it keeps going when the browser tab or the GUI server closes and can be cancelled as a unit.
 
-One job runs at a time per machine: on a single GPU, two models rarely fit at once, and timings from overlapping
-jobs would not mean much. Cancel asks the job to stop (SIGTERM on Linux and macOS, CTRL_BREAK on Windows), so the
-runner kills its worker, removes partial outputs and records "cancelled"; if the job has not stopped after a grace
-period, the whole process tree is killed and the record is corrected here.
+One job runs at a time per workspace: on a single GPU, two models rarely fit at once, and timings from overlapping
+jobs would not mean much. One process runs the queue (the GUI's `serve`, or the headless `dispatch`); it writes a
+heartbeat to `dispatcher.json`, and any other would-be dispatcher waits while that heartbeat is fresh. Jobs are also
+claimed inside a write transaction, so even two dispatchers could not start two jobs.
+
+Cancel asks the job to stop (SIGTERM on Linux and macOS, CTRL_BREAK on Windows), so the runner kills its worker,
+removes partial outputs and records "cancelled"; if the job has not stopped after a grace period, the whole process
+tree is killed and the record is corrected here.
 """
 from __future__ import annotations
 
 import json
 import os
 import signal
+import socket
 import sqlite3
 import subprocess
 import sys
@@ -45,6 +50,7 @@ create table if not exists jobs (
 """
 
 FINAL = ("done", "failed", "cancelled")
+HEARTBEAT_S = 30   # a dispatcher silent this long is taken as gone
 
 
 def utc() -> str:
@@ -69,7 +75,6 @@ class JobQueue:
         cfg.workspace.mkdir(parents=True, exist_ok=True)
         self.db_path = cfg.workspace / "jobs.db"
         self._lock = threading.Lock()
-        self._procs: dict[str, subprocess.Popen] = {}
         with self._db() as db:
             db.execute(SCHEMA)
 
@@ -105,7 +110,9 @@ class JobQueue:
             db.execute(f"update jobs set {cols} where run_id = ?", (*kw.values(), run_id))
 
     # ------------------------------------------------------------------ cancel
-    def cancel(self, run_id: str, grace_s: float = 60) -> dict:
+    def cancel(self, run_id: str, grace_s: float = 60, wait: bool = False) -> dict:
+        """Cancel a job. A running one is asked to stop and killed after `grace_s`; with wait=True this call
+        blocks until it has stopped (for the command line), otherwise a thread sees to it (for the GUI)."""
         job = self.get(run_id)
         if not job:
             raise KeyError(run_id)
@@ -124,7 +131,12 @@ class JobQueue:
                     os.kill(pid, signal.SIGTERM)
             except OSError:
                 pass
-            threading.Thread(target=self._hard_stop_later, args=(run_id, pid, grace_s), daemon=True).start()
+            if wait:
+                self._hard_stop_later(run_id, pid, grace_s)
+            else:
+                threading.Thread(target=self._hard_stop_later, args=(run_id, pid, grace_s), daemon=True).start()
+        elif wait:
+            self._finish(run_id)
         return self.get(run_id)
 
     def _hard_stop_later(self, run_id: str, pid: int, grace_s: float) -> None:
@@ -140,11 +152,19 @@ class JobQueue:
         """Start the oldest queued job if nothing is running. Returns its run id."""
         with self._lock:
             self.reconcile()
-            with self._db() as db:
-                if db.execute("select 1 from jobs where status = 'running' and backend = 'local'").fetchone():
-                    return None
-                row = db.execute("select * from jobs where status = 'queued' and backend = 'local' "
-                                 "order by created_utc limit 1").fetchone()
+            db = self._db()
+            try:
+                db.execute("begin immediate")  # check and claim in one write transaction
+                row = None
+                if not db.execute("select 1 from jobs where status = 'running' and backend = 'local'").fetchone():
+                    row = db.execute("select * from jobs where status = 'queued' and backend = 'local' "
+                                     "order by created_utc limit 1").fetchone()
+                if row:
+                    db.execute("update jobs set status = 'running', started_utc = ?, pid = null where run_id = ?",
+                               (utc(), row["run_id"]))
+                db.execute("commit")
+            finally:
+                db.close()
             if not row:
                 return None
             run_id = row["run_id"]
@@ -154,32 +174,21 @@ class JobQueue:
             cmd = [sys.executable, "-m", "ontherecord.cli",
                    "--config", str(self.cfg.source) if self.cfg.source else "none",
                    "--workspace", str(self.cfg.workspace), "run-job", run_id]
-            kw: dict = {}
-            if os.name == "nt":
-                kw["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
-            else:
-                kw["start_new_session"] = True
             env = {**os.environ, "PYTHONUNBUFFERED": "1",
                    "PYTHONPATH": os.pathsep.join([str(SRC_DIR), os.environ.get("PYTHONPATH", "")]).rstrip(os.pathsep)}
-            out = open(run_dir / "job_stdout.txt", "a", encoding="utf-8")
-            proc = subprocess.Popen(cmd, stdout=out, stderr=subprocess.STDOUT, env=env, **kw)
-            out.close()
-            self._procs[run_id] = proc
-            self._set(run_id, status="running", started_utc=utc(), pid=proc.pid)
+            self._set(run_id, pid=spawn_detached(cmd, run_dir / "job_stdout.txt", env))
             return run_id
 
     def reconcile(self) -> None:
         """Bring 'running' jobs whose process has ended up to date from their run record."""
         with self._db() as db:
-            rows = db.execute("select run_id, pid from jobs where status = 'running' and backend = 'local'").fetchall()
+            rows = db.execute("select run_id, pid, started_utc from jobs "
+                              "where status = 'running' and backend = 'local'").fetchall()
         for r in rows:
-            proc = self._procs.get(r["run_id"])
-            if proc is not None:
-                if proc.poll() is None:
-                    continue
-                self._procs.pop(r["run_id"], None)
-            elif pid_alive(r["pid"]):
+            if pid_alive(r["pid"]):
                 continue
+            if r["pid"] is None and _age_s(r["started_utc"]) < 60:
+                continue  # claimed a moment ago; its process is still being started
             self._finish(r["run_id"])
 
     def _finish(self, run_id: str) -> None:
@@ -204,14 +213,70 @@ class JobQueue:
             status = "cancelled"
         self._set(run_id, status=status, finished_utc=utc())
 
-    def dispatch_forever(self, every_s: float = 2.0, stop: threading.Event | None = None) -> None:
+    # ------------------------------------------------------------------ the dispatcher and its heartbeat
+    def dispatcher(self) -> dict | None:
+        """The process running this workspace's queue, if one has written its heartbeat recently."""
+        try:
+            d = json.loads((self.cfg.workspace / "dispatcher.json").read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        if time.time() - d.get("t", 0) > HEARTBEAT_S:
+            return None
+        if d.get("host") == socket.gethostname() and not pid_alive(d.get("pid")):
+            return None
+        return d
+
+    def _beat(self, kind: str) -> None:
+        write_json_atomic(self.cfg.workspace / "dispatcher.json",
+                          {"pid": os.getpid(), "host": socket.gethostname(), "kind": kind, "t": time.time(),
+                           "utc": utc()})
+
+    def dispatch_forever(self, every_s: float = 2.0, stop: threading.Event | None = None, kind: str = "serve",
+                         log=lambda m: print(m, file=sys.stderr)) -> None:
         stop = stop or threading.Event()
+        me = (socket.gethostname(), os.getpid())
+        waiting = False
         while not stop.is_set():
-            try:
-                self.start_next()
-            except Exception as e:  # a bad job must not stop the queue
-                print(f"dispatcher: {type(e).__name__}: {e}", file=sys.stderr)
+            other = self.dispatcher()
+            if other and (other.get("host"), other.get("pid")) != me:
+                if not waiting:
+                    log(f"the queue is run by {other.get('kind')} (pid {other.get('pid')} on {other.get('host')}); "
+                        "this process will take over if that one stops")
+                    waiting = True
+            else:
+                waiting = False
+                self._beat(kind)
+                try:
+                    self.start_next()
+                except Exception as e:  # a bad job must not stop the queue
+                    log(f"dispatcher: {type(e).__name__}: {e}")
             stop.wait(every_s)
+
+
+# Started through a middle process that exits at once, a job is no longer a descendant of whatever started it, so
+# stopping the GUI server, even by killing its whole process tree, leaves the job running. Its own session (its own
+# process group on Windows, which CTRL_BREAK can reach) keeps it clear of Ctrl+C and a closed terminal too.
+_LAUNCH = """
+import os, subprocess, sys
+kw = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {"start_new_session": True}
+with open(sys.argv[1], "a", encoding="utf-8") as out:
+    p = subprocess.Popen(sys.argv[2:], stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT, **kw)
+print(p.pid)
+"""
+
+
+def spawn_detached(cmd: list[str], log_path: Path, env: dict) -> int:
+    r = subprocess.run([sys.executable, "-c", _LAUNCH, str(log_path), *cmd], env=env, capture_output=True,
+                       text=True, timeout=60)
+    if r.returncode != 0:
+        raise RuntimeError(f"could not start the job: {r.stderr.strip()[-500:]}")
+    return int(r.stdout.strip())
+
+
+def _age_s(iso: str | None) -> float:
+    if not iso:
+        return float("inf")
+    return (datetime.now(timezone.utc) - datetime.fromisoformat(iso)).total_seconds()
 
 
 def run_job(cfg: MachineConfig, run_id: str) -> int:
