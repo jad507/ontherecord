@@ -39,6 +39,7 @@ function showTab(name) {
   if (name === "results") refreshRuns();
   if (name === "library") refreshLibrary();
   if (name === "import") refreshImport();
+  if (name === "ask") $("#ask-input").focus();
 }
 document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
 
@@ -713,6 +714,68 @@ async function pickFolder(start, done) {
   };
   show(start);
 }
+
+// ---------------------------------------------------------------- ask (the assistant)
+let chatHistory = [], chatBusy = false, chatNotes = [];  // notes ride along with the next question (roles alternate)
+// Links like #play/RUN/ITEM/SECONDS (in answers and in what the assistant looked at) open the player at that moment.
+const linkify = (text) => esc(text).replace(/\(?#play\/([^\s/)]+)\/([^\s/)]+)\/(\d+)\)?/g,
+  (m, run, item, t) => ` <a class="play" href="#play/${run}/${item}/${t}">▶ ${hm(+t)}</a>`);
+window.addEventListener("hashchange", () => {
+  const m = location.hash.match(/^#play\/([^/]+)\/([^/]+)(?:\/([\d.]+))?/);
+  if (m) openPlayer(decodeURIComponent(m[1]), decodeURIComponent(m[2]), m[3] ? +m[3] : null);
+});
+
+function addBubble(cls, html) {
+  const d = document.createElement("div");
+  d.className = `bubble ${cls}`;
+  d.innerHTML = html;
+  $("#chat").appendChild(d);
+  d.scrollIntoView({ block: "end" });
+  return d;
+}
+
+async function ask(text) {
+  if (chatBusy || !text.trim()) return;
+  chatBusy = true;
+  $("#ask-send").disabled = true;
+  addBubble("user", esc(text));
+  chatHistory.push({ role: "user", content: chatNotes.length ? `${chatNotes.join(" ")}\n\n${text}` : text });
+  chatNotes = [];
+  const wait = addBubble("bot thinking", "Thinking… (on this computer's processor, this can take half a minute)");
+  try {
+    const r = await api("/api/assistant", { json: { messages: chatHistory } });
+    chatHistory = r.messages;
+    wait.remove();
+    const steps = r.steps.length ? `<details><summary>What I looked at (${r.steps.length})</summary>${r.steps.map((s) =>
+      `<div><b>${esc(s.tool)}</b> ${esc(JSON.stringify(s.args))}</div><pre>${linkify(s.result)}</pre>`).join("")}</details>` : "";
+    const pend = r.pending.map((p, i) => `<div class="pending" data-i="${i}"><b>${esc(p.description)}</b><div class="muted">${esc(p.tool)} ${esc(JSON.stringify(p.args))}</div>
+      <button class="small" data-go='${esc(JSON.stringify(p))}'>Go ahead</button> <button class="small secondary" data-no="1">No</button></div>`).join("");
+    const reply = Object.entries(r.links || {}).sort((a, b) => b[0].length - a[0].length).reduce((html, [tm, url]) =>
+      html.replace(new RegExp(`(^|[^\\d:])(${tm.replace(/[:]/g, ":")})(?![\\d:]|</a>)`), `$1<a class="play" href="${esc(url)}">▶ $2</a>`), linkify(r.reply || "(no answer)"));
+    addBubble("bot", reply + pend + steps + `<div class="muted" style="font-size:11px">${r.seconds} s</div>`);
+  } catch (err) {
+    wait.remove();
+    addBubble("bot", `Something went wrong: ${esc(err.message)}`);
+    chatHistory.pop();
+  }
+  chatBusy = false;
+  $("#ask-send").disabled = false;
+}
+$("#ask-form").addEventListener("submit", (e) => { e.preventDefault(); const t = $("#ask-input").value; $("#ask-input").value = ""; ask(t); });
+$("#ask-input").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("#ask-form").requestSubmit(); } });
+$("#examples").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) ask(b.textContent); });
+$("#ask-clear").addEventListener("click", (e) => { e.preventDefault(); chatHistory = []; chatNotes = []; $("#chat").innerHTML = ""; });
+$("#chat").addEventListener("click", async (e) => {
+  const go = e.target.closest("[data-go]"), no = e.target.closest("[data-no]");
+  if (no) { no.closest(".pending").innerHTML = `<span class="muted">Not done.</span>`; chatNotes.push("(I chose not to do that.)"); return; }
+  if (!go) return;
+  const p = JSON.parse(go.dataset.go);
+  const box = go.closest(".pending");
+  box.innerHTML = `<span class="muted">Working…</span>`;
+  const r = await api("/api/assistant/confirm", { json: { tool: p.tool, args: p.args } }).catch((err) => ({ result: err.message }));
+  box.innerHTML = linkify(r.result);
+  chatNotes.push(`(I pressed the button. Result: ${r.result})`);
+});
 
 // ---------------------------------------------------------------- start
 (async function init() {

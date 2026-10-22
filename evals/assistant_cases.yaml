@@ -1,0 +1,55 @@
+# Plain-English requests for the assistant, and what a good answer must do. `call` is a tool the assistant must
+# call (or propose, for tools that wait for a button) somewhere in its turn; `args` are checks on that call's
+# arguments: a string must appear in the value (any case), a number must be within 2. `no_tool: true` means it
+# should answer without tools. These run against whatever is in the library, so they check the choice of tool and
+# arguments, not the facts in the answer.
+- ask: What recordings do we have?
+  call: find_recordings
+- ask: Show me the November meetings.
+  call: find_recordings
+  args: {words: november}
+- ask: List the budget hearings.
+  call: find_recordings
+  args: {words: budget}
+- ask: Where did someone talk about the data center?
+  call: search_transcripts
+  args: {words: data center}
+- ask: Did anyone mention potholes?
+  call: search_transcripts
+  args: {words: pothole}
+- ask: Find quotes about red light cameras.
+  call: search_transcripts
+  args: {words: red light}
+- ask: What happened at the January 29 meeting?
+  call: recording_overview
+- ask: Who spoke during public comment at the January 29 council meeting?
+  call: recording_overview
+- ask: Read me the first five minutes of the January 29 meeting.
+  call: read_transcript
+  args: {from_minute: 0}
+- ask: What was being said around minute 16 of the January 29 meeting?
+  call: read_transcript
+  args: {from_minute: 16}
+- ask: Please transcribe https://www.youtube.com/watch?v=abcdefghijk
+  call: transcribe
+  args: {links: abcdefghijk}
+- ask: "Transcribe these two and pull out the public comments: https://www.youtube.com/watch?v=aaaaaaaaaaa https://www.youtube.com/watch?v=bbbbbbbbbbb"
+  call: transcribe
+  args: {links: bbbbbbbbbbb, with_comments: true}
+- ask: Is anything running right now?
+  call: jobs_status
+- ask: How far along is the transcription?
+  call: jobs_status
+- ask: Stop job 20261022-092723-eleven-left.
+  call: cancel_job
+  args: {job_id: 20261022-092723-eleven-left}
+- ask: Is my camera plugged in?
+  call: devices
+- ask: Import my SD card into the Telescope project.
+  call: devices
+- ask: Hello! What can you do?
+  no_tool: true
+- ask: What is the weather today?
+  no_tool: true
+- ask: Did people support or oppose things at the January 29 meeting?
+  call: recording_overview

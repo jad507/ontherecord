@@ -360,6 +360,32 @@ def cmd_clear(args) -> int:
     return _wait(q, run_id, args.json) if args.wait else 0
 
 
+def cmd_ask(args) -> int:
+    """One question to the assistant, from the command line (the Ask tab does the same)."""
+    from .assistant import Assistant
+    a = Assistant(config_from(args))
+    try:
+        out = a.chat([{"role": "user", "content": args.question}])
+    finally:
+        a.stop()
+    if args.json:
+        print(json.dumps(out, indent=1, ensure_ascii=False))
+        return 0
+    for s in out["steps"]:
+        print(f"  [{s['tool']} {json.dumps(s['args'], ensure_ascii=False)}]", file=sys.stderr)
+    for p in out["pending"]:
+        print(f"  (waiting for confirmation: {p['tool']} {json.dumps(p['args'], ensure_ascii=False)})", file=sys.stderr)
+    print(out["reply"])
+    print(f"  ({out['seconds']} s)", file=sys.stderr)
+    return 0
+
+
+def cmd_mcp(args) -> int:
+    from .mcp_server import serve_mcp
+    serve_mcp(config_from(args))
+    return 0
+
+
 def cmd_cancel(args) -> int:
     from .jobs import JobQueue
     q = JobQueue(config_from(args))
@@ -431,6 +457,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--wait", action="store_true")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_clear)
+    p = sub.add_parser("ask", help="ask the assistant a question in plain English")
+    p.add_argument("question")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(fn=cmd_ask)
+    sub.add_parser("mcp", help="serve the assistant's tools to an MCP client (Claude Desktop, Claude Code) "
+                              "over stdio").set_defaults(fn=cmd_mcp)
     p = sub.add_parser("cancel", help="cancel a job and wait until it has stopped")
     p.add_argument("run_id")
     p.add_argument("--grace", type=float, default=60, help="seconds to let it stop before killing it")

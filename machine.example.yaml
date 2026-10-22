@@ -35,3 +35,10 @@ stage_env:
 # Where imports from cameras and drives are filed (Import tab, `ontherecord ingest`). An external drive is fine: the
 # archive's catalog and import manifests live inside it, in _ingests/.
 # archive: ~/OnTheRecord-Archive
+
+# The assistant (the Ask tab, `ontherecord ask`): a small model on llama-server. gpu_layers 0 keeps it on the CPU,
+# so it never takes GPU memory from a job; 999 puts it all on the GPU. `endpoint` uses a server already running.
+# assistant:
+#   model: gemma-4-E4B-it-UD-Q8_K_XL.gguf       # relative to models_root
+#   gpu_layers: 0
+#   context: 16384

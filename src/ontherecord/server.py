@@ -42,6 +42,15 @@ class PromptIn(BaseModel):
     text: str
 
 
+class ChatIn(BaseModel):
+    messages: list[dict]
+
+
+class ConfirmIn(BaseModel):
+    tool: str
+    args: dict = {}
+
+
 class IngestIn(BaseModel):
     source: str
     archive: str | None = None
@@ -51,7 +60,17 @@ class IngestIn(BaseModel):
 
 
 def create_app(cfg: MachineConfig, dispatch: bool = True) -> FastAPI:
-    app = FastAPI(title="On the Record")
+    from contextlib import asynccontextmanager
+    held: dict = {}  # the assistant, started on first use
+
+    @asynccontextmanager
+    async def lifespan(app):
+        yield
+        stop.set()
+        if "assistant" in held:
+            held["assistant"].stop()  # never leave its llama-server running
+
+    app = FastAPI(title="On the Record", lifespan=lifespan)
     store = Store(cfg.workspace)
     queue = JobQueue(cfg)
     library = Library(store)
@@ -369,6 +388,25 @@ def create_app(cfg: MachineConfig, dispatch: bool = True) -> FastAPI:
         if not csv_path.is_file():
             raise HTTPException(404, f"the manifest is not at {csv_path}: is the archive's drive plugged in?")
         return FileResponse(csv_path, filename=csv_path.name, media_type="text/csv")
+
+    # ------------------------------------------------------------------ the assistant
+    def assistant():
+        if "assistant" not in held:
+            from .assistant import Assistant
+            from .tools import Toolbox
+            held["assistant"] = Assistant(cfg, Toolbox(cfg))
+        return held["assistant"]
+
+    @app.post("/api/assistant")
+    def ask(body: ChatIn):
+        try:
+            return assistant().chat(body.messages)
+        except FileNotFoundError as e:
+            raise HTTPException(503, str(e))
+
+    @app.post("/api/assistant/confirm")
+    def confirm(body: ConfirmIn):
+        return {"result": assistant().confirm(body.tool, body.args)}
 
     # ------------------------------------------------------------------ library and player
     @app.get("/api/library")

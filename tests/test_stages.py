@@ -33,3 +33,14 @@ def test_auto_channel_choice():
     assert choose_channel(stereo_mic)[0] == "average"
     same = {"rms_left_dbfs": -30.0, "rms_right_dbfs": -30.0, "rms_average_dbfs": -30.0, "lr_correlation": 1.0}
     assert choose_channel(same)[0] == "average"
+
+
+def test_assistant_links_times_it_quoted():
+    from ontherecord.assistant import time_links
+    steps = [{"result": "- [0:08:23] A (oppose): x (#play/R/I/503)\n  [0:00:45] B: y (#play/R/I/45)\n"
+                        "C (#play/R/J/9) [17:05] D: z (#play/R/J/1025)"},
+             {"result": "[17:05] E: elsewhere (#play/R/K/1025)"}]
+    links = time_links(steps)
+    assert links["8:23"] == links["0:08:23"] == "#play/R/I/503"
+    assert links["0:45"] == "#play/R/I/45" and "45" not in links
+    assert "17:05" not in links  # quoted from two recordings: ambiguous

@@ -53,6 +53,7 @@ class MachineConfig:
     stage_env: dict[str, str] = field(default_factory=dict)   # plain environment settings for stage processes
     cookies_file: Path | None = None                          # yt-dlp cookies; never recorded
     archive: Path = field(default_factory=lambda: Path.home() / "OnTheRecord-Archive")  # where imports are filed
+    assistant: dict = field(default_factory=dict)             # model, gpu_layers, context, or endpoint
 
     def python_for(self, group: str) -> str:
         """The interpreter for a stage group; the current one when the config names none."""
@@ -110,4 +111,5 @@ def load_config(path: str | Path | None = None) -> MachineConfig:
     cfg.cookies_file = _path(raw.get("cookies_file"))
     if raw.get("archive"):
         cfg.archive = _path(raw["archive"])
+    cfg.assistant = dict(raw.get("assistant") or {})
     return cfg

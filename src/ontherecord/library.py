@@ -166,7 +166,7 @@ class Library:
     def search(self, query: str, limit: int = 200) -> list[dict]:
         """Every transcript line, across all recordings, that contains every word of the query (any case). Each
         recording is searched in its default view."""
-        words = [w for w in re.findall(r"[\w']+", query.lower()) if w]
+        words = [stem(w) for w in re.findall(r"[\w']+", query.lower()) if w]
         if not words:
             return []
         hits = []
@@ -183,6 +183,14 @@ class Library:
                     if len(hits) >= limit:
                         return hits
         return hits
+
+
+def stem(word: str) -> str:
+    """A crude stem, so 'values', 'parking' and 'proposed' find 'value', 'park' and 'propose'."""
+    for suffix in ("ies", "ing", "es", "ed", "s"):
+        if word.endswith(suffix) and len(word) - len(suffix) >= 4:
+            return word[: -len(suffix)] + ("y" if suffix == "ies" else "")
+    return word
 
 
 def _date(info: dict) -> str | None:

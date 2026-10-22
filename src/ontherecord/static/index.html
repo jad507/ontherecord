@@ -12,6 +12,7 @@
   <div class="brand"><span class="mark">●</span> On the Record</div>
   <nav>
     <button data-tab="library" class="active">Library</button>
+    <button data-tab="ask">Ask</button>
     <button data-tab="import">Import</button>
     <button data-tab="build">Build a run</button>
     <button data-tab="jobs">Jobs</button>
@@ -30,6 +31,23 @@
         <ul id="recordings"></ul>
       </div>
       <div id="player" class="lib-player"><p class="muted">Pick a recording on the left.</p></div>
+    </div>
+  </section>
+
+  <!-- ASK -->
+  <section id="tab-ask" class="tab">
+    <div class="ask">
+      <div id="chat" class="chat"></div>
+      <div class="examples" id="examples">
+        <button class="small secondary">What recordings do we have?</button>
+        <button class="small secondary">Where did people talk about the data center?</button>
+        <button class="small secondary">Summarize the public comments at the January 29 meeting.</button>
+        <button class="small secondary">What is running right now?</button>
+      </div>
+      <form id="ask-form" class="ask-form"><textarea id="ask-input" rows="2" placeholder="Ask in plain English, or paste a video link to transcribe…"></textarea>
+        <button type="submit" id="ask-send">Ask</button></form>
+      <div class="muted" style="font-size:12px">The assistant runs on this computer. It looks things up in your recordings and shows you what it looked at;
+        anything that starts work waits for you to press a button. <a href="#" id="ask-clear">Start over</a></div>
     </div>
   </section>
 
