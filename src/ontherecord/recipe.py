@@ -235,7 +235,12 @@ def load_recipe(path: str | Path) -> Recipe:
 
 
 def recipe_from_text(text: str, base: Path, path: Path | None = None) -> Recipe:
-    raw = yaml.safe_load(text) or {}
+    try:
+        raw = yaml.safe_load(text) or {}
+    except yaml.YAMLError as e:
+        raise RecipeError(f"the recipe is not valid YAML: {e}") from None
+    if not isinstance(raw, dict):
+        raise RecipeError("a recipe is a set of 'key: value' lines (name, source, stages)")
     items = load_items(raw.get("source") or {}, base)
     stages = parse_stages(raw.get("stages"), base)
     return Recipe(name=str(raw.get("name") or (path.stem if path else "run")), description=raw.get("description", ""),

@@ -51,6 +51,22 @@ def stream_pcm(ffmpeg: str, path: Path, channels: int, rate: int):
         p.wait()
 
 
+def choose_channel(cs: dict, dead_db: float = 20.0, max_loss_db: float = 6.0) -> tuple[str, str]:
+    """'auto': average the two channels, unless one is dead (a mic unplugged or muted) or averaging would lose more
+    than `max_loss_db` against the louder channel (phase-inverted copies cancel; two independent mics lose about 3 dB
+    on average, identical ones nothing). Then take the louder channel. Returns the choice and the reason."""
+    left, right, avg = cs["rms_left_dbfs"], cs["rms_right_dbfs"], cs["rms_average_dbfs"]
+    loud = "left" if left >= right else "right"
+    if abs(left - right) >= dead_db:
+        quiet = "right" if loud == "left" else "left"
+        return loud, f"the {quiet} channel is {abs(left - right):.0f} dB quieter (a dead or muted microphone)"
+    loss = max(left, right) - avg
+    if loss > max_loss_db:
+        return loud, (f"averaging would lose {loss:.0f} dB (left/right r = {cs['lr_correlation']:+.2f}: the channels "
+                      "cancel), so the louder channel alone")
+    return "average", f"the channels agree well enough to average (r = {cs['lr_correlation']:+.2f}, {loss:.1f} dB lost)"
+
+
 def db(x: float) -> float:
     return round(20 * math.log10(max(x, 1e-10)), 1)
 
@@ -106,8 +122,10 @@ class Audio(Stage):
     makes = ("audio",)
     packages = ("numpy",)
     settings = {
-        "channel": Setting("left", "How stereo becomes mono. 'average' is ffmpeg's -ac 1; on phase-inverted "
-                           "streams it cancels the speech.", choices=["left", "right", "average"]),
+        "channel": Setting("auto", "How stereo becomes mono. 'average' is ffmpeg's -ac 1; on phase-inverted "
+                           "streams it cancels the speech. 'auto' averages unless that would cancel the speech or one "
+                           "channel is dead, then takes the louder channel, and records why.",
+                           choices=["auto", "left", "right", "average"]),
         "sample_rate": Setting(16000, "Hz. Whisper and pyannote both expect 16000.", choices=[16000, 22050, 44100, 48000]),
         "format": Setting("flac", "flac is lossless and about 40% smaller than wav.", choices=["flac", "wav"]),
         "active_threshold_dbfs": Setting(-40.0, "A 30 ms frame louder than this counts as active, for the "
@@ -122,29 +140,34 @@ class Audio(Stage):
         src = probe(ffprobe, media)
         checks: list[Check] = []
         metrics: dict = {"source": src}
+        channel = settings["channel"]
         if int(src.get("channels", 1)) >= 2:
             cs = channel_stats(ffmpeg, media)
             metrics["source_channels"] = cs
             corr = cs["lr_correlation"]
+            if channel == "auto":
+                channel, reason = choose_channel(cs)
+                metrics["channel_chosen"], metrics["channel_reason"] = channel, reason
+                checks.append(Check("auto_channel", "ok", channel, f"auto chose '{channel}': {reason}"))
             chosen = {"left": cs["rms_left_dbfs"], "right": cs["rms_right_dbfs"],
-                      "average": cs["rms_average_dbfs"]}[settings["channel"]]
+                      "average": cs["rms_average_dbfs"]}[channel]
             loss = round(chosen - max(cs["rms_left_dbfs"], cs["rms_right_dbfs"]), 1)
             metrics["mono_vs_loudest_channel_db"] = loss
             if corr < -0.5:
                 msg = f"left and right are phase-inverted (r = {corr:+.2f})"
-                checks.append(Check("phase", "warn" if settings["channel"] == "average" else "ok", corr,
-                                    msg + ("; averaging cancels them" if settings["channel"] == "average"
-                                           else f"; the {settings['channel']} channel alone avoids cancellation")))
+                checks.append(Check("phase", "warn" if channel == "average" else "ok", corr,
+                                    msg + ("; averaging cancels them" if channel == "average"
+                                           else f"; the {channel} channel alone avoids cancellation")))
             else:
                 checks.append(Check("phase", "ok", corr, f"left/right correlation r = {corr:+.2f}"))
             status = "fail" if loss <= settings["fail_below_db"] else "ok"
             checks.append(Check("channel_loss", status, loss,
-                                f"'{settings['channel']}' mono is {-loss:.1f} dB below the loudest channel"
+                                f"'{channel}' mono is {-loss + 0.0:.1f} dB below the loudest channel"
                                 + (" — the speech is cancelling" if status == "fail" else "")))
         else:
             checks.append(Check("phase", "ok", None, "source is mono; the channel setting has no effect"))
         name = f"audio.{settings['format']}"
-        pan = PAN[settings["channel"]] if int(src.get("channels", 1)) >= 2 else ["-ac", "1"]
+        pan = PAN[channel] if int(src.get("channels", 1)) >= 2 else ["-ac", "1"]
         cmd = [ffmpeg, "-y", "-v", "error", "-i", str(media), "-vn", *pan,
                "-ar", str(settings["sample_rate"]), "-f", settings["format"], str(out / name)]
         r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")

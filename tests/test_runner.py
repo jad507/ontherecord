@@ -191,3 +191,10 @@ def test_two_steps_that_make_identical_bytes_are_not_mixed(ws):
 def test_wiring_errors(ws, stages, msg):
     with pytest.raises(RecipeError, match=msg):
         recipe(ws, stages)
+
+
+def test_malformed_yaml_is_a_recipe_error(ws):
+    with pytest.raises(RecipeError, match="not valid YAML"):
+        recipe_from_text("name: x\nsource:\n  urls: [https://youtube.com/watch?v=abc, x]\n", ws)
+    with pytest.raises(RecipeError, match="key: value"):
+        recipe_from_text("- just a list\n", ws)
