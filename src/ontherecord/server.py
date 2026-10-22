@@ -473,6 +473,14 @@ def create_app(cfg: MachineConfig, dispatch: bool = True) -> FastAPI:
         except KeyError as e:
             raise HTTPException(404, str(e))
 
+    @app.get("/api/compare")
+    def compare_runs(a: str, b: str):
+        from .library import compare
+        try:
+            return compare(store, a, b)
+        except KeyError as e:
+            raise HTTPException(404, f"no run {e}")
+
     @app.get("/api/search")
     def search(q: str, limit: int = 200):
         return library.search(q, limit)

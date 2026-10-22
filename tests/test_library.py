@@ -49,3 +49,17 @@ def test_recordings_view_and_search(tmp_path):
     assert lib.search("nothing like this") == []
     with pytest.raises(KeyError):
         lib.recording(good, "no-such-item")
+
+
+def test_compare_two_runs(tmp_path):
+    from ontherecord.library import compare
+    (tmp_path / "Council Meeting - October 28, 2025 [abc123XYZ].txt").write_text("one two three\nfour five", "utf-8")
+    deaf = run(tmp_path, "{deaf: true}")
+    good = run(tmp_path)
+    c = compare(Store(tmp_path / "w"), deaf, good)
+    assert [col["name"] for col in c["columns"]] == ["download", "audio", "transcribe"]
+    row = c["rows"]["abc123XYZ"]
+    assert row["download"]["same"] and row["audio"]["same"]
+    t = row["transcribe"]
+    assert t["same"] is False and t["settings_differ"] == {"deaf": [True, False]} and t["inputs_differ"] == []
+    assert (t["a"]["value"], t["b"]["value"], t["unit"]) == (0, 5, "words")

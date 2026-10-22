@@ -8,7 +8,7 @@ const STATUS_TEXT = { cached: "reused", ran: "ran", run: "will run", "run-if-cha
 
 let STAGES = [], PROMPTS = [], DEFS = {};
 let form = { name: "", description: "", urls: "", files: "", stages: [] };
-let currentRun = null, selectedJob = null, runTimer = null, armedCancel = null;
+let currentRun = null, selectedJob = null, runTimer = null, armedCancel = null, compareWith = null, CMP = null;
 
 async function api(path, opts = {}) {
   if (opts.json !== undefined) {
@@ -362,6 +362,10 @@ async function showRun(id) {
   $("#run-head").innerHTML = `<h3>${esc(r.name)} <span class="badge b-${esc(r.status)}">${esc(r.status)}</span></h3>
     <div class="muted">${esc(r.description || "")}</div>
     <div class="muted" style="font-size:12px;margin:4px 0 10px">${esc(r.run_id)} · ${esc(r.host)}${r.gpu ? " · " + esc(r.gpu.name) : ""} · started ${esc(fmtTime(r.created_utc))}${r.finished_utc ? " · took " + esc(fmtDur(secsBetween(r.created_utc, r.finished_utc))) : ""}</div>`;
+  const runs = await api("/api/runs").catch(() => []);
+  $("#run-head").insertAdjacentHTML("beforeend", `<label class="muted" style="display:inline-flex;gap:6px;align-items:center">Compare with
+    <select id="compare-pick" style="width:auto"><option value="">—</option>${runs.filter((x) => x.run_id !== id).map((x) => `<option value="${esc(x.run_id)}" ${x.run_id === compareWith ? "selected" : ""}>${esc(x.name)} · ${esc(fmtTime(x.created_utc))}</option>`).join("")}</select></label>`);
+  if (compareWith) return showCompare(compareWith, id);
   $("#grid").innerHTML = gridHtml(stageCols, r.cells, true) + legendHtml(false);
   clearTimeout(runTimer);
   if (r.status === "running" && $("#tab-results").classList.contains("active")) runTimer = setTimeout(() => showRun(id), 3000);
@@ -825,6 +829,44 @@ $("#setup").addEventListener("click", async (e) => {
     try { const r = await api("/api/setup/token", { json: { token: $("#hf-token").value } }); $("#token-msg").textContent = `Saved in ${r.saved}.`; $("#token-msg").className = "msg ok"; }
     catch (err) { $("#token-msg").textContent = err.message; $("#token-msg").className = "msg err"; }
   }
+});
+
+// ---------------------------------------------------------------- comparing two runs
+async function showCompare(a, b) {
+  const c = await api(`/api/compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`).catch((err) => ({ error: err.message }));
+  if (c.error) { $("#grid").innerHTML = `<p class="msg err">${esc(c.error)}</p>`; return; }
+  CMP = c;
+  const num = (v) => (v == null ? "–" : typeof v === "number" ? v.toLocaleString() : v);
+  const head = `<tr><th>item</th>${c.columns.map((col) => `<th>${colHead({ name: col.name, stage: col.stage })}${col.a_step && col.a_step !== col.name ? `<br><span class="step">a: ${esc(col.a_step)}</span>` : ""}</th>`).join("")}</tr>`;
+  const rows = Object.entries(c.rows).map(([item, row]) => `<tr><td class="item">${esc(item)}</td>${c.columns.map((col) => {
+    const x = row[col.name] || {};
+    const cls = x.same === true ? "c-cached" : x.same === false ? "c-run" : "c-pending";
+    const label = x.same === true ? "same" : x.same === false ? "differs" : (x.a?.status || "–") + " / " + (x.b?.status || "–");
+    const vals = x.unit !== undefined && (x.a?.value != null || x.b?.value != null) ? `<br><span class="t">${esc(num(x.a?.value))} → ${esc(num(x.b?.value))}</span>` : "";
+    const chk = [x.a?.checks, x.b?.checks].some((k) => k === "fail") ? ` <span class="chk-fail">● fail</span>` : "";
+    return `<td><span class="cell ${cls}" data-cmp-item="${esc(item)}" data-cmp-col="${esc(col.name)}"><span class="s">${esc(label)}</span>${chk}${vals}</span></td>`;
+  }).join("")}</tr>`).join("");
+  $("#grid").innerHTML = `<p class="muted">Left of each arrow: <b>${esc(c.a.name)}</b> (${esc(c.a.run_id)}). Right: <b>${esc(c.b.name)}</b> (this run).
+    “same” means byte-identical outputs.</p><table class="grid">${head}${rows}</table>`;
+  $("#receipt").innerHTML = "";
+}
+$("#run-head").addEventListener("change", (e) => {
+  if (e.target.id === "compare-pick") { compareWith = e.target.value || null; showRun(currentRun); }
+});
+$("#grid").addEventListener("click", (e) => {
+  const c = e.target.closest("[data-cmp-item]");
+  if (!c || !CMP) return;
+  const x = CMP.rows[c.dataset.cmpItem][c.dataset.cmpCol];
+  const unit = x.unit ? ` ${esc(x.unit)}` : "";
+  const settings = Object.entries(x.settings_differ || {}).map(([k, [va, vb]]) => `<tr><td>${esc(k)}</td><td class="v">${esc(JSON.stringify(va))} → ${esc(JSON.stringify(vb))}</td></tr>`).join("");
+  $("#receipt").innerHTML = `<div class="card"><h3>${esc(c.dataset.cmpCol)} · ${esc(c.dataset.cmpItem)}</h3>
+    <p>${x.same ? "The two runs made byte-identical outputs here." : x.same === false ? "The outputs differ." : "Only one run has this stage for this item."}
+      ${x.a?.value != null || x.b?.value != null ? `<b>${esc(String(x.a?.value ?? "–"))}${unit}</b> → <b>${esc(String(x.b?.value ?? "–"))}${unit}</b>.` : ""}</p>
+    <h4>Why</h4><ul>
+      ${settings ? `<li>Settings that differ:<table class="kv">${settings}</table></li>` : "<li>Same settings.</li>"}
+      ${(x.inputs_differ || []).length ? `<li>Inputs that differ (made differently upstream): ${esc(x.inputs_differ.join(", "))}</li>` : "<li>Same inputs.</li>"}
+    </ul>
+    <h4>Checks</h4><div>${esc(CMP.a.name)}: ${esc(x.a?.checks || x.a?.status || "–")} · ${esc(CMP.b.name)}: ${esc(x.b?.checks || x.b?.status || "–")}</div></div>`;
 });
 
 // ---------------------------------------------------------------- start

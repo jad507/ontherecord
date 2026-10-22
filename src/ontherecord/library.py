@@ -204,3 +204,71 @@ def _date(info: dict) -> str | None:
             pass
     u = info.get("upload_date")
     return f"{u[:4]}-{u[4:6]}-{u[6:]}" if u and len(u) == 8 else None
+
+
+# ---------------------------------------------------------------------------------------------- comparing two runs
+HEADLINE = {  # stage type -> the one number that says most about its output, and how to word it
+    "audio": lambda m: (m.get("mono_vs_loudest_channel_db"), "dB against the louder channel"),
+    "diarize": lambda m: ((m.get("standard") or {}).get("speaker_count"), "speakers"),
+    "transcribe": lambda m: (m.get("words"), "words"),
+    "align": lambda m: (m.get("segments"), "segments"),
+    "blocks": lambda m: (m.get("blocks"), "blocks"),
+    "extract_comments": lambda m: (m.get("comments"), "comments"),
+}
+
+
+def compare(store: Store, run_a: str, run_b: str) -> dict:
+    """Two runs side by side, for the items they share: per stage, whether the outputs are byte-identical, the
+    headline number of each, the settings that differ, and the worst check on each side."""
+    ra, rb = (_load(store.run_dir(r) / "run.json") for r in (run_a, run_b))
+    if not ra or not rb:
+        raise KeyError(run_a if not ra else run_b)
+
+    def steps(rec):
+        return [(s["name"], s.get("stage", s["name"])) for s in rec["stages"]]
+
+    sa, sb = steps(ra), steps(rb)
+    pairs = []  # (name in a, name in b, stage type): same name first, else the only step of that type on each side
+    for name, stage in sa:
+        if any(n == name for n, _ in sb):
+            pairs.append((name, name, stage))
+        else:
+            ta, tb = [n for n, s in sa if s == stage], [n for n, s in sb if s == stage]
+            if len(ta) == 1 and len(tb) == 1:
+                pairs.append((name, tb[0], stage))
+    for name, stage in sb:
+        if not any(p[1] == name for p in pairs):
+            pairs.append((None, name, stage))
+    items = [i["id"] for i in ra["items"] if any(j["id"] == i["id"] for j in rb["items"])]
+    rows = {}
+    for item in items:
+        row = {}
+        for na, nb, stage in pairs:
+            ca = ra["cells"].get(item, {}).get(na) if na else None
+            cb = rb["cells"].get(item, {}).get(nb)
+            reca = _load(store.root / ca["receipt"]) if ca and ca.get("receipt") else None
+            recb = _load(store.root / cb["receipt"]) if cb and cb.get("receipt") else None
+            cell = {"a": {"status": ca.get("status") if ca else None, "checks": ca.get("checks") if ca else None},
+                    "b": {"status": cb.get("status") if cb else None, "checks": cb.get("checks") if cb else None}}
+            head = HEADLINE.get(stage)
+            for side, rec in (("a", reca), ("b", recb)):
+                if rec and head:
+                    cell[side]["value"], cell["unit"] = head(rec["metrics"])
+                if rec:
+                    cell[side]["outputs"] = {k: v["sha256"] for k, v in rec["outputs"].items()}
+                    cell[side]["key"] = rec["key"]
+            if reca and recb:
+                cell["same"] = cell["a"]["outputs"] == cell["b"]["outputs"]
+                sa_, sb_ = reca["settings"], recb["settings"]
+                flat = lambda v: v.get("sha256") if isinstance(v, dict) and "sha256" in v else v  # noqa: E731
+                cell["settings_differ"] = {k: [flat(sa_.get(k)), flat(sb_.get(k))] for k in sorted(set(sa_) | set(sb_))
+                                           if flat(sa_.get(k)) != flat(sb_.get(k))}
+                ia = {k: v["sha256"] for k, v in reca["inputs"].items()}
+                ib = {k: v["sha256"] for k, v in recb["inputs"].items()}
+                cell["inputs_differ"] = sorted(k for k in set(ia) | set(ib) if ia.get(k) != ib.get(k))
+            row[nb or na] = {"stage": stage, "a_step": na, "b_step": nb, **cell}
+        rows[item] = row
+    return {"a": {k: ra[k] for k in ("run_id", "name", "description", "created_utc")},
+            "b": {k: rb[k] for k in ("run_id", "name", "description", "created_utc")},
+            "columns": [{"name": nb or na, "stage": stage, "a_step": na, "b_step": nb} for na, nb, stage in pairs],
+            "items": {i["id"]: i for i in rb["items"] if i["id"] in items}, "rows": rows}
