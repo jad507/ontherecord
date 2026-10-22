@@ -1,0 +1,33 @@
+# Copy to machine.yaml (beside this file, or in your user config directory) and edit for this machine.
+# Everything here is about *where things are*; recipes say *what to run*. Omit any line to take its default.
+
+# Where downloads, stage outputs, receipts and run records go. Meeting audio lives here: keep it off shared drives
+# your ethics approval does not cover.
+workspace: ~/ontherecord-workspace
+
+# Which Python runs each group of stages. Omit a group to use the Python that runs ontherecord itself.
+# "audio" stages need torch, pyannote.audio, faster-whisper, soundfile, numpy and yt-dlp.
+envs:
+  audio: ~/src/hands_on_dl/.venv-audio/bin/python      # Windows: C:\path\to\.venv-audio\Scripts\python.exe
+
+# Binaries. Omit to find them on PATH.
+tools:
+  ffmpeg: ffmpeg
+  ffprobe: ffprobe
+  llama_server: ~/src/llama.cpp-b11249-cuda12.8/llama-b11249/llama-server
+
+# yt-dlp needs a JavaScript runtime to download from YouTube (deno or bun).
+js_runtime:
+  bun: ~/.bun/bin/bun
+
+# Model files named in recipes (e.g. extract_comments.model) are looked up here.
+models_root: ~/models
+
+# KEY=VALUE lines handed to stage processes, e.g. HF_TOKEN for pyannote's gated model. Values are never recorded.
+# env_file: ~/src/hands_on_dl/.env
+
+# Plain environment settings for stage processes (recorded in receipts).
+stage_env:
+  HF_HUB_OFFLINE: "1"     # use models already in the Hugging Face cache; no network, no token needed
+
+# cookies_file: ~/youtube_cookies.txt   # only if YouTube insists you sign in; never recorded

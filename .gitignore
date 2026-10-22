@@ -1,0 +1,8 @@
+__pycache__/
+*.egg-info/
+.venv/
+.pytest_cache/
+# Per-machine settings: paths to binaries, weights and secrets differ on every machine.
+machine.yaml
+# Default workspace when the machine config names none. Holds meeting audio: never commit it.
+workspace/

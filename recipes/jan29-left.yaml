@@ -1,0 +1,14 @@
+name: jan29-left
+description: >
+  City Council Meeting, January 29, 2026: 31 minutes, phase-inverted stereo (left = -right).
+  Channel: left.
+source:
+  urls:
+    - https://www.youtube.com/watch?v=Kr5f5_Rt90Q
+stages:
+  - download: {}
+  - audio: {channel: left}
+  - diarize: {}
+  - transcribe: {}
+  - align: {overlap_mode: standard}
+  - blocks: {}

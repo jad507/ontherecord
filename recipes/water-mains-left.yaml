@@ -1,0 +1,14 @@
+name: water-mains-left
+description: >
+  The 11-minute Water Transmission Mains public meeting (July 9, 2025). Its stereo is not phase-inverted
+  (r = +1.00): it was on the October collapse list only because it really has two speakers. A quick smoke test.
+source:
+  urls:
+    - https://www.youtube.com/watch?v=fe0TavdWvEk
+stages:
+  - download: {}
+  - audio: {channel: left}
+  - diarize: {}
+  - transcribe: {}
+  - align: {overlap_mode: standard}
+  - blocks: {}

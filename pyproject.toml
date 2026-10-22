@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ontherecord"
+version = "0.1.0"
+description = "Run AI transcription and coding pipelines where every result carries a receipt of how it was made"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Jeffrey De Lucca", email = "jad507@psu.edu" }]
+# The core (runner, receipts, the stages that only move text) needs nothing heavy, so it installs anywhere.
+# Stages that need torch or yt-dlp may run in a different Python environment; see machine.example.yaml.
+dependencies = ["pyyaml>=6", "psutil>=5.9"]
+
+[project.optional-dependencies]
+server = ["fastapi>=0.110", "uvicorn>=0.29"]
+download = ["yt-dlp>=2026.3.17"]
+audio = ["numpy>=1.26", "soundfile>=0.12", "faster-whisper>=1.1", "pyannote.audio>=4.0"]
+dev = ["pytest>=8"]
+
+[project.scripts]
+ontherecord = "ontherecord.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

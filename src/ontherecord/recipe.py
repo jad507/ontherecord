@@ -1,0 +1,188 @@
+"""Recipes: what to run, as a file a person can read, diff and cite.
+
+    name: council-left-channel
+    description: one meeting, left channel, the hands_on_dl defaults
+    source:
+      urls:
+        - https://www.youtube.com/watch?v=fe0TavdWvEk
+    stages:
+      - download: {}
+      - audio: {channel: left}
+      - diarize: {}
+      - transcribe: {beam_size: 10}
+      - align: {overlap_mode: standard}
+      - blocks: {}
+      - extract_comments: {thinking: false}
+
+A setting left out takes the stage's default, and the default is written into the run record and every receipt,
+so a later change of default cannot silently change what an old run means. A stage entry may also carry
+`on_fail: continue`, which lets later stages run on an item even when one of this stage's checks failed (to
+measure the damage rather than stop at it).
+"""
+from __future__ import annotations
+
+import hashlib
+import re
+from dataclasses import dataclass, field
+from pathlib import Path
+
+import yaml
+
+from . import stages as registry
+from .hashing import sha256_file, sha256_text
+from .stages.base import Item, Stage
+
+PROMPTS_DIR = Path(__file__).parent / "prompts"
+YOUTUBE_ID = re.compile(r"(?:v=|youtu\.be/|/shorts/|/live/|/embed/)([A-Za-z0-9_-]{11})")
+BRACKET_ID = re.compile(r"\[([A-Za-z0-9_-]{6,})\]$")
+
+
+class RecipeError(ValueError):
+    pass
+
+
+@dataclass
+class StageSpec:
+    name: str
+    cls: type[Stage]
+    given: dict                      # as written in the recipe
+    run_settings: dict               # what run() receives: defaults filled, file settings replaced by their text
+    key_settings: dict               # what the cache key hashes: file settings as their sha256
+    record_settings: dict            # what receipts and the run record show: file settings as name, hash and text
+    on_fail: str = "stop"
+
+
+@dataclass
+class Recipe:
+    name: str
+    description: str
+    items: list[Item]
+    stages: list[StageSpec]
+    path: Path | None = None
+    text: str = ""
+    raw: dict = field(default_factory=dict)
+
+
+def slug(text: str, n: int = 48) -> str:
+    return re.sub(r"[^A-Za-z0-9_-]+", "-", text).strip("-")[:n] or "item"
+
+
+def item_for_url(url: str) -> Item:
+    m = YOUTUBE_ID.search(url)
+    if m:
+        return Item(id=m.group(1), url=url)
+    m = re.search(r"/video/(\d+)", url)  # TikTok
+    if m:
+        return Item(id=f"tt{m.group(1)}", url=url)
+    return Item(id=hashlib.sha1(url.encode()).hexdigest()[:12], url=url)
+
+
+def item_for_file(path: Path) -> Item:
+    """A file named the way yt-dlp names them ("Title [id].mp4") keeps its video id."""
+    m = BRACKET_ID.search(path.stem)
+    return Item(id=m.group(1) if m else slug(path.stem), path=str(path.resolve()), title=path.stem)
+
+
+def load_items(source: dict, base: Path) -> list[Item]:
+    items: list[Item] = []
+    urls = list(source.get("urls") or [])
+    if source.get("url_file"):
+        f = (base / source["url_file"]).expanduser()
+        urls += [ln.strip() for ln in f.read_text(encoding="utf-8").splitlines()
+                 if ln.strip() and not ln.lstrip().startswith("#")]
+    items += [item_for_url(u) for u in urls]
+    for pattern in source.get("files") or []:
+        p = Path(pattern).expanduser()
+        p = p if p.is_absolute() else base / p
+        matches = sorted(p.parent.glob(p.name)) if any(c in p.name for c in "*?[") else [p]
+        if not matches or not all(m.is_file() for m in matches):
+            raise RecipeError(f"source file not found: {pattern}")
+        items += [item_for_file(m) for m in matches]
+    seen: dict[str, Item] = {}
+    for it in items:
+        if it.id in seen:
+            raise RecipeError(f"two sources share the item id {it.id!r}: {seen[it.id].as_dict()} and {it.as_dict()}")
+        seen[it.id] = it
+    if not items:
+        raise RecipeError("the recipe's source lists no urls or files")
+    return items
+
+
+def resolve_file(value: str, base: Path) -> Path:
+    for cand in (Path(value).expanduser(), base / value, PROMPTS_DIR / value):
+        if cand.is_file():
+            return cand.resolve()
+    raise RecipeError(f"file not found: {value} (looked beside the recipe and in {PROMPTS_DIR})")
+
+
+def resolve_settings(cls: type[Stage], given: dict, base: Path) -> tuple[dict, dict, dict]:
+    unknown = set(given) - set(cls.settings)
+    if unknown:
+        raise RecipeError(f"{cls.name}: unknown setting(s) {sorted(unknown)}; it takes {sorted(cls.settings)}")
+    run, key, record = {}, {}, {}
+    for k, s in cls.settings.items():
+        v = given.get(k, s.default)
+        if s.choices and v not in s.choices:
+            raise RecipeError(f"{cls.name}.{k} = {v!r}; choose one of {s.choices}")
+        if s.kind == "file":
+            path = resolve_file(str(v), base)
+            text = path.read_text(encoding="utf-8")
+            run[k] = text
+            digest = sha256_text(text)
+            if s.in_key:
+                key[k] = digest
+            record[k] = {"file": str(v), "path": str(path), "sha256": digest, "text": text}
+        else:
+            run[k] = v
+            if s.in_key:
+                key[k] = v
+            record[k] = v
+    return run, key, record
+
+
+def parse_stages(entries: list, base: Path) -> list[StageSpec]:
+    specs: list[StageSpec] = []
+    made: set[str] = set()
+    for i, entry in enumerate(entries or []):
+        if isinstance(entry, str):
+            entry = {entry: {}}
+        names = [k for k in entry if k in registry.names()]
+        if len(names) != 1:
+            raise RecipeError(f"stage entry {i + 1} must name exactly one stage ({registry.names()}): {entry}")
+        name = names[0]
+        extra = set(entry) - {name, "on_fail"}
+        if extra:
+            raise RecipeError(f"stage entry {name}: unknown key(s) {sorted(extra)}")
+        cls = registry.get(name)
+        missing = [n for n in cls.needs if n not in made]
+        if missing:
+            raise RecipeError(f"{name} needs {missing}, which no earlier stage makes")
+        given = entry[name] or {}
+        run, key, record = resolve_settings(cls, given, base)
+        on_fail = entry.get("on_fail", "stop")
+        if on_fail not in ("stop", "continue"):
+            raise RecipeError(f"{name}: on_fail must be 'stop' or 'continue'")
+        specs.append(StageSpec(name, cls, given, run, key, record, on_fail))
+        made.update(cls.makes)
+    if not specs:
+        raise RecipeError("the recipe lists no stages")
+    return specs
+
+
+def load_recipe(path: str | Path) -> Recipe:
+    path = Path(path).resolve()
+    text = path.read_text(encoding="utf-8")
+    return recipe_from_text(text, path.parent, path)
+
+
+def recipe_from_text(text: str, base: Path, path: Path | None = None) -> Recipe:
+    raw = yaml.safe_load(text) or {}
+    items = load_items(raw.get("source") or {}, base)
+    stages = parse_stages(raw.get("stages"), base)
+    return Recipe(name=str(raw.get("name") or (path.stem if path else "run")), description=raw.get("description", ""),
+                  items=items, stages=stages, path=path, text=text, raw=raw)
+
+
+def source_identity(item: Item) -> str:
+    """What the first stage's cache key hashes in place of an input: the URL, or the bytes of a local file."""
+    return item.url if item.url else "sha256:" + sha256_file(item.path)
