@@ -8,7 +8,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-from ..llm import ManagedLlamaServer, Server, est_tokens, parse_json, quick_fingerprint
+from ..llm import close_model, est_tokens, open_model, parse_json
 from .base import Check, Context, Item, Result, Setting, Stage
 
 POSITIONS = ["support", "oppose", "mixed", "neutral_or_question", "unclear"]
@@ -135,25 +135,7 @@ class ExtractComments(Stage):
     }
 
     def setup(self, settings: dict, ctx: Context):
-        state = {"server": None}
-        if settings["endpoint"] == "managed":
-            from ..envinfo import tool_version
-            binary = ctx.config.tool("llama_server")
-            model = ctx.config.model_path(settings["model"])
-            if not model.is_file():
-                raise FileNotFoundError(f"model not found: {model} (set models_root in the machine config)")
-            offloads = [s.strip() for s in settings["offload"].split(";") if s.strip()]
-            srv = ManagedLlamaServer(binary, model, settings["context"], offloads,
-                                     ctx.scratch / "llama-server.log", log=ctx.log)
-            state.update(server=srv, url=srv.url,
-                         tools={"llama_server": tool_version([binary, "--version"]), "offload_used": srv.offload,
-                                "model": quick_fingerprint(model)})
-        else:
-            state.update(url=settings["endpoint"], tools={})
-        state["llm"] = Server(state["url"], thinking=settings["thinking"], seed=settings["seed"])
-        state["tools"]["served_model"] = state["llm"].served_model
-        state["tools"]["n_ctx"] = state["llm"].n_ctx
-        return state
+        return open_model(settings, ctx)
 
     def run(self, item: Item, inputs, out: Path, settings: dict, state, ctx: Context) -> Result:
         llm, system = state["llm"], settings["system_prompt"]
@@ -213,7 +195,4 @@ class ExtractComments(Stage):
                       device="server", tools=state["tools"])
 
     def teardown(self, state) -> None:
-        srv = state.get("server")
-        if srv:
-            srv.stop()
-            srv.log_file.close()
+        close_model(state)

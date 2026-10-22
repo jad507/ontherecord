@@ -1,0 +1,23 @@
+name: wildstresstest
+description: >-
+  WildStressTest (the ICDS 2026 poster's own set): 320 two-choice items from 164 hand-labelled clips of people
+  demonstrating contrastive stress on YouTube and TikTok. The clips are other people's recordings and are not
+  distributed, so this runs only where AITranscribe's stress_search/ folder is. Marks come from the audio alone,
+  since nobody hands WhiStress a true transcript in the wild.
+source:
+  files:
+    - path: ~/src/AITranscribe/stress_search/wildstresstest/items.json
+      id: WildStressTest
+stages:
+  - stress_set: {}
+  - whistress: {}
+  - stress_read: {marks: none}
+    as: read_unmarked
+  - stress_read: {marks: whistress_top}
+    as: read_top_word
+  - stress_read: {marks: whistress_heard}
+    as: read_whistress
+  - stress_read: {marks: labels}
+    as: read_labels
+  - stress_read: {marks: whistress_top, prompt: paper}
+    as: read_top_word_paper_prompt

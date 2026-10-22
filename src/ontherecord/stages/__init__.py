@@ -19,6 +19,9 @@ _BUILTIN = {
     "align": "align:Align",
     "blocks": "blocks:Blocks",
     "extract_comments": "extract_comments:ExtractComments",
+    "stress_set": "stress_set:StressSet",
+    "whistress": "whistress:WhiStressMarks",
+    "stress_read": "stress_read:StressRead",
 }
 
 

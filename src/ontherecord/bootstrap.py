@@ -72,6 +72,12 @@ MODELS = {
                              "role": "speech", "needs_gb": 2,
                              "about": "pyannote's speaker diarization (who speaks when). Gated: accept its terms at "
                                       "https://huggingface.co/pyannote/speaker-diarization-community-1 first"},
+    "whistress": {"kind": "hf", "repo": "slprl/WhiStress", "rev": "3641786c97df31786d2ae17bb9307f7776cf7138",
+                  "patterns": ["classifier.pt", "additional_decoder_block.pt", "metadata.json"], "bytes": 42_600_000,
+                  "role": "stress", "needs_gb": 2, "about": "WhiStress's stress head (the stress test stages)"},
+    "whisper-small.en": {"kind": "hf", "repo": "openai/whisper-small.en", "rev": "e8727524f962ee844a7319d92be39ac1bd25655a",
+                         "patterns": ["*.json", "*.txt", "model.safetensors"], "bytes": 970_000_000, "role": "stress",
+                         "needs_gb": 2, "about": "The Whisper that WhiStress listens with (the stress test stages)"},
 }
 
 
@@ -258,10 +264,11 @@ def get_model(name: str, models_root: Path, token: str | None = None, python: st
         raise PermissionError(f"{name} is gated: accept its terms on Hugging Face, then give a token (HF_TOKEN)")
     # faster-whisper and pyannote read the Hugging Face cache, so fill it with huggingface_hub, in the Python that
     # runs those stages (it has huggingface_hub, as both libraries depend on it)
-    code = ("import sys; from huggingface_hub import snapshot_download; "
-            "print(snapshot_download(sys.argv[1], revision=sys.argv[2], token=sys.argv[3] or None))")
-    r = subprocess.run([python or sys.executable, "-c", code, m["repo"], m["rev"], token or ""],
-                       capture_output=True, text=True)
+    code = ("import json, sys; from huggingface_hub import snapshot_download; "
+            "print(snapshot_download(sys.argv[1], revision=sys.argv[2], token=sys.argv[3] or None, "
+            "allow_patterns=json.loads(sys.argv[4])))")
+    r = subprocess.run([python or sys.executable, "-c", code, m["repo"], m["rev"], token or "",
+                        json.dumps(m.get("patterns"))], capture_output=True, text=True)
     if r.returncode != 0:
         raise RuntimeError(f"{name}: {r.stderr.strip()[-600:]}")
     return r.stdout.strip().splitlines()[-1]

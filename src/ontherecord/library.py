@@ -214,6 +214,9 @@ HEADLINE = {  # stage type -> the one number that says most about its output, an
     "align": lambda m: (m.get("segments"), "segments"),
     "blocks": lambda m: (m.get("blocks"), "blocks"),
     "extract_comments": lambda m: (m.get("comments"), "comments"),
+    "stress_set": lambda m: (m.get("items"), "items"),
+    "whistress": lambda m: ((m.get("given") or {}).get("f1"), "F1, given the true words"),
+    "stress_read": lambda m: (m.get("accuracy"), "of meanings right"),
 }
 
 

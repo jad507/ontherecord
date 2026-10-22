@@ -1,0 +1,23 @@
+name: stress-benchmarks
+description: >-
+  The ICDS 2026 poster's cascade, on StressTest (218 readings by one actor) and StressPresso (202 readings by 4
+  speakers; Yosha et al. 2025). WhiStress marks the stressed words; Gemma 4 26B, reading only the transcript, picks
+  which of two meanings the speaker intended. Unmarked, the words alone give nothing away (each sentence is read
+  both ways), so the marks are the only way to beat 50%.
+source:
+  urls:
+    - https://huggingface.co/datasets/slprl/StressTest
+    - https://huggingface.co/datasets/slprl/StressPresso
+stages:
+  - stress_set: {}
+  - whistress: {}
+  - stress_read: {marks: none}
+    as: read_unmarked
+  - stress_read: {marks: whistress_top}
+    as: read_top_word
+  - stress_read: {marks: whistress_given}
+    as: read_whistress
+  - stress_read: {marks: labels}
+    as: read_labels
+  - stress_read: {marks: whistress_given, prompt: paper}
+    as: read_whistress_paper_prompt

@@ -51,10 +51,11 @@ class Server:
     def _get(self, path: str) -> dict:
         return json.loads(urllib.request.urlopen(self.base_url + path, timeout=60).read())
 
-    def chat(self, messages, temperature=0.0, max_tokens=4096, schema=None) -> dict:
+    def chat(self, messages, temperature=0.0, max_tokens=4096, schema=None, seed=None, **sampling) -> dict:
+        """`seed` overrides the server's for one call; `sampling` adds top_p, top_k and the like."""
         body = {"model": self.served_model, "messages": messages, "temperature": temperature,
-                "max_tokens": max_tokens, "seed": self.seed, "cache_prompt": False,
-                "chat_template_kwargs": {"enable_thinking": self.thinking}}
+                "max_tokens": max_tokens, "seed": self.seed if seed is None else seed, "cache_prompt": False,
+                "chat_template_kwargs": {"enable_thinking": self.thinking}, **sampling}
         if schema:
             body["response_format"] = {"type": "json_schema", "json_schema": {"name": "out", "schema": schema}}
         req = urllib.request.Request(self.base_url + "/chat/completions", data=json.dumps(body).encode(),
@@ -71,7 +72,7 @@ class Server:
         text = choice["message"].get("content") or ""
         finish = choice.get("finish_reason")
         usage = r.get("usage", {})
-        return {"text": text if finish == "stop" else "", "finish_reason": finish,
+        return {"text": text if finish == "stop" else "", "raw_text": text, "finish_reason": finish,
                 "input_tokens": usage.get("prompt_tokens"), "output_tokens": usage.get("completion_tokens")}
 
 
@@ -112,6 +113,38 @@ class ManagedLlamaServer:
             except subprocess.TimeoutExpired:
                 self.proc.kill()
         self.proc = None
+
+
+def open_model(settings: dict, ctx) -> dict:
+    """A stage's model, from its `endpoint`, `model`, `context`, `offload`, `thinking` and `seed` settings: a
+    llama-server it starts (endpoint 'managed') or a server already running. Returns the stage state: `llm`, the
+    `server` to stop in teardown (or None), and `tools` for the receipt."""
+    state = {"server": None}
+    if settings["endpoint"] == "managed":
+        from .envinfo import tool_version
+        binary = ctx.config.tool("llama_server")
+        model = ctx.config.model_path(settings["model"])
+        if not model.is_file():
+            raise FileNotFoundError(f"model not found: {model} (set models_root in the machine config)")
+        offloads = [s.strip() for s in settings["offload"].split(";") if s.strip()]
+        srv = ManagedLlamaServer(binary, model, settings["context"], offloads, ctx.scratch / "llama-server.log",
+                                 log=ctx.log)
+        state.update(server=srv, url=srv.url,
+                     tools={"llama_server": tool_version([binary, "--version"]), "offload_used": srv.offload,
+                            "model": quick_fingerprint(model)})
+    else:
+        state.update(url=settings["endpoint"], tools={})
+    state["llm"] = Server(state["url"], thinking=settings["thinking"], seed=settings["seed"])
+    state["tools"]["served_model"] = state["llm"].served_model
+    state["tools"]["n_ctx"] = state["llm"].n_ctx
+    return state
+
+
+def close_model(state: dict) -> None:
+    srv = state.get("server")
+    if srv:
+        srv.stop()
+        srv.log_file.close()
 
 
 def parse_json(text: str):

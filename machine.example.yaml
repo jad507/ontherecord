@@ -9,6 +9,7 @@ workspace: ~/ontherecord-workspace
 # "audio" stages need torch, pyannote.audio, faster-whisper, soundfile, numpy and yt-dlp.
 envs:
   audio: ~/src/hands_on_dl/.venv-audio/bin/python      # Windows: C:\path\to\.venv-audio\Scripts\python.exe
+  stress: ~/src/.venv-stress/bin/python                # the stress test stages: transformers 5, librosa, pyarrow
 
 # Binaries. Omit to find them on PATH.
 tools:

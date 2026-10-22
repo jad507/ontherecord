@@ -96,6 +96,9 @@ def item_for_url(url: str) -> Item:
     m = YOUTUBE_ID.search(url)
     if m:
         return Item(id=m.group(1), url=url)
+    m = re.search(r"huggingface\.co/datasets/[^/]+/([^/?#]+)", url)
+    if m:
+        return Item(id=m.group(1), url=url, title=m.group(1))
     m = re.search(r"/video/(\d+)", url)  # TikTok
     if m:
         return Item(id=f"tt{m.group(1)}", url=url)
@@ -117,13 +120,20 @@ def load_items(source: dict, base: Path) -> list[Item]:
                  if ln.strip() and not ln.lstrip().startswith("#")]
     items += [item_for_url(u) for u in urls]
     for pattern in source.get("files") or []:
+        named = pattern if isinstance(pattern, dict) else {}  # {path: ..., id: ...} names the item itself
+        pattern = named.get("path", pattern)
         p = Path(pattern).expanduser()
         p = p if p.is_absolute() else base / p
         # A name like "Title [id].mp4" is a file, not a pattern, when that exact file exists
         matches = [p] if p.is_file() or not any(c in p.name for c in "*?[") else sorted(p.parent.glob(p.name))
         if not matches or not all(m.is_file() for m in matches):
             raise RecipeError(f"source file not found: {pattern}")
-        items += [item_for_file(m) for m in matches]
+        if named.get("id"):
+            if len(matches) != 1:
+                raise RecipeError(f"source {pattern}: an id names one file, but {len(matches)} match")
+            items.append(Item(id=str(named["id"]), path=str(matches[0].resolve()), title=str(named["id"])))
+        else:
+            items += [item_for_file(m) for m in matches]
     seen: dict[str, Item] = {}
     for it in items:
         if it.id in seen:
