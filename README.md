@@ -87,3 +87,4 @@ check blocking, wiring, the queue and cancel). Next: a view comparing two runs, 
 macOS.
 
 Built by Jeffrey De Lucca (jad507@psu.edu) with Claude Code.
+MIT licensed (see [LICENSE](LICENSE)). To cite it, see [CITATION.cff](CITATION.cff).

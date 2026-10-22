@@ -7,6 +7,7 @@ name = "ontherecord"
 version = "0.1.0"
 description = "Run AI transcription and coding pipelines where every result carries a receipt of how it was made"
 readme = "README.md"
+license = { text = "MIT" }
 requires-python = ">=3.10"
 authors = [{ name = "Jeffrey De Lucca", email = "jad507@psu.edu" }]
 # The core (runner, receipts, the stages that only move text) needs nothing heavy, so it installs anywhere.

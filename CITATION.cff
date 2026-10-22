@@ -1,0 +1,14 @@
+cff-version: 1.2.0
+message: "If you use On the Record in your research, please cite it as below."
+title: "On the Record"
+abstract: >-
+  Runs AI transcription and coding pipelines where every result carries a receipt of how it was made: the source,
+  the audio conversion, the versions of each model, the prompt, every setting, the machine, and the time it took.
+authors:
+  - family-names: "De Lucca"
+    given-names: "Jeffrey"
+    email: "jad507@psu.edu"
+    affiliation: "The Pennsylvania State University"
+version: "0.1.0"
+license: MIT
+type: software
