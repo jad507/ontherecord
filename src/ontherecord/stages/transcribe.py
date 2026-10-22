@@ -37,6 +37,13 @@ class Transcribe(Stage):
     }
 
     def setup(self, settings: dict, ctx: Context):
+        try:
+            # CTranslate2 needs cuBLAS and cuDNN but does not look in the nvidia-* pip packages that hold them;
+            # importing torch loads them first. Without it, a machine with no system CUDA fails with
+            # "libcublas.so.12 is not found" (found in the Docker image; shiro hid it with a system CUDA install).
+            import torch  # noqa: F401
+        except ImportError:
+            pass
         from faster_whisper import WhisperModel
         dev = settings["device"]
         if dev == "auto":
