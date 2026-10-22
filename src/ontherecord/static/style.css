@@ -48,7 +48,7 @@ legend { font-weight: 600; padding: 0 6px; }
 .grid-wrap { min-width: 0; } #grid { overflow-x: auto; }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
 .msg { min-height: 20px; font-size: 13px; margin-bottom: 8px; white-space: pre-wrap; }
-.msg.err { color: var(--fail); } .msg.ok { color: var(--ok); }
+.msg.err { color: var(--fail); } .msg.ok { color: var(--ok); } .msg.warn { color: var(--warn); }
 pre { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px; overflow: auto;
   font: 12px/1.4 var(--mono); max-height: 50vh; margin: 6px 0; white-space: pre-wrap; word-break: break-word; }
 pre.log { max-height: 45vh; }

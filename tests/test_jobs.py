@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import socket
+import sys
 import time
 from pathlib import Path
 
@@ -164,3 +166,68 @@ def test_the_same_recipe_twice_in_one_second_gets_two_run_ids(queue):
     q, base = queue
     ids = {q.submit(recipe(0.1), base) for _ in range(3)}
     assert len(ids) == 3
+
+
+def test_one_job_at_a_time_of_any_kind(queue):
+    # a recipe running holds the machine: a queued command (or an import) waits for it, and the reverse
+    q, base = queue
+    rid = q.submit(recipe(1.0), base)
+    cmd = q.submit_task("command", {"argv": [sys.executable, "-c", "print('hi')"], "cwd": str(base)}, "command py")
+    assert q.start_next() == rid
+    assert q.start_next() is None
+    assert q.busy()["run_id"] == rid
+    wait_for(q, rid, ("done",))
+    assert q.start_next() == cmd
+    job = wait_for(q, cmd, ("done", "failed"))
+    assert job["status"] == "done"
+    assert "hi" in (q.store.run_dir(cmd) / "log.txt").read_text()
+    assert q.busy() is None
+
+
+def test_a_held_machine_holds_the_queue(queue):
+    from ontherecord.jobs import hold, holder, release
+    q, base = queue
+    hold(q.cfg, "the assistant")
+    assert holder(q.cfg)["what"] == "the assistant"
+    rid = q.submit(recipe(0.1), base)
+    assert q.start_next() is None  # waits while the assistant's model is loaded
+    release(q.cfg)
+    assert q.start_next() == rid
+    wait_for(q, rid, ("done",))
+
+
+def test_a_dead_holder_holds_nothing(queue):
+    from ontherecord.jobs import holder
+    q, _ = queue
+    (q.cfg.workspace / "in_use.json").write_text(json.dumps({"pid": 2**22 + 12345, "host": socket.gethostname(),
+                                                             "what": "the assistant"}))
+    assert holder(q.cfg) is None
+
+
+def test_the_assistant_stays_off_while_a_job_waits(queue):
+    from ontherecord.assistant import Assistant
+    q, base = queue
+    rid = q.submit(recipe(0.1), base)
+    bot = Assistant(q.cfg)
+    bot._ensure = lambda: (_ for _ in ()).throw(AssertionError("the model must not load"))
+    r = bot.chat([{"role": "user", "content": "what recordings do we have?"}])
+    assert r["busy"] and '"q"' in r["reply"] and "switched off" in r["reply"]
+    from ontherecord.jobs import holder
+    assert holder(q.cfg) is None  # it let go at once
+    q.cancel(rid)
+
+
+def test_exclusive_runs_a_command_in_turn(queue, capsys, monkeypatch):
+    import threading
+    from ontherecord import cli
+    q, base = queue
+    stop = threading.Event()
+    threading.Thread(target=q.dispatch_forever, kwargs={"stop": stop, "every_s": 0.2}, daemon=True).start()
+    monkeypatch.chdir(base)
+    try:
+        code = cli.main(["--config", "none", "--workspace", str(q.cfg.workspace), "exclusive", "--",
+                         sys.executable, "-c", "import sys; print('done here'); sys.exit(4)"])
+    finally:
+        stop.set()
+    assert code == 4
+    assert "done here" in capsys.readouterr().out

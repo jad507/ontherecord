@@ -4,12 +4,13 @@ Jobs live in SQLite in the workspace (`jobs.db`), so the queue survives the GUI 
 runs as its own process (`python -m ontherecord.cli run-job RUN_ID`), detached from whatever started it and in its
 own process group, so it keeps going when the browser tab or the GUI server closes and can be cancelled as a unit.
 
-Jobs run in two lanes, one job at a time in each. The "local" lane runs recipes: on a single GPU, two models rarely
-fit at once, and timings from overlapping jobs would not mean much. The "io" lane copies files (imports from a
-camera or drive, and clearing them afterwards), which needs the disks rather than the GPU, so a card can be
-imported while a long transcription runs. One process runs the queue (the GUI's `serve`, or the headless `dispatch`); it writes a
-heartbeat to `dispatcher.json`, and any other would-be dispatcher waits while that heartbeat is fresh. Jobs are also
-claimed inside a write transaction, so even two dispatchers could not start two jobs.
+One thing runs at a time on this machine. A job of any kind (a recipe, an import, a clear, a model download, or a
+command an agent queued with `ontherecord exclusive`) starts only when no other job is running and nothing else holds
+the machine: the assistant's model holds it while loaded (`in_use.json`, see `hold`), and lets go as soon as a job is
+waiting. Every step then gets all of the memory and GPU there is, and its timings mean something. One process runs
+the queue (the GUI's `serve`, or the headless `dispatch`); it writes a heartbeat to `dispatcher.json`, and any other
+would-be dispatcher waits while that heartbeat is fresh. Jobs are also claimed inside a write transaction, so even
+two dispatchers could not start two jobs.
 
 Cancel asks the job to stop (SIGTERM on Linux and macOS, CTRL_BREAK on Windows), so the runner kills its worker,
 removes partial outputs and records "cancelled"; if the job has not stopped after a grace period, the whole process
@@ -52,7 +53,6 @@ create table if not exists jobs (
 """
 
 FINAL = ("done", "failed", "cancelled")
-LANES = ("local", "io")
 HEARTBEAT_S = 30   # a dispatcher silent this long is taken as gone
 
 
@@ -88,7 +88,8 @@ class JobQueue:
 
     # ------------------------------------------------------------------ submit / list
     def submit_task(self, kind: str, spec: dict, name: str) -> str:
-        """Queue an import or a clear (see ingest.py) in the io lane. The spec is stored as YAML like a recipe."""
+        """Queue a job that is not a recipe: an import or a clear (see ingest.py), a model download, or a command.
+        The spec is stored as YAML like a recipe; backend 'io' marks it as one of these."""
         import yaml
         text = yaml.safe_dump({"kind": kind, "name": name, **spec}, sort_keys=False, allow_unicode=True)
         run_id = new_run_id(name, lambda r: self.get(r) is not None or self.store.run_dir(r).exists())
@@ -161,21 +162,27 @@ class JobQueue:
         self._finish(run_id)
 
     # ------------------------------------------------------------------ dispatch
-    def start_next(self) -> str | None:
-        """In each lane with nothing running, start its oldest queued job. Returns the first run id started."""
-        started = [r for r in (self._start_in(lane) for lane in LANES) if r]
-        return started[0] if started else None
+    def busy(self) -> dict | None:
+        """The job that has the machine or is waiting for it: the running one, else the oldest queued one."""
+        self.reconcile()
+        with self._db() as db:
+            r = db.execute("select * from jobs where status in ('running', 'queued') "
+                           "order by status = 'running' desc, created_utc limit 1").fetchone()
+        return dict(r) if r else None
 
-    def _start_in(self, lane: str) -> str | None:
+    def start_next(self) -> str | None:
+        """Start the oldest queued job, if nothing is running and nothing else holds the machine."""
         with self._lock:
             self.reconcile()
+            if holder(self.cfg):
+                return None  # the assistant is answering; it lets go once it sees a job waiting
             db = self._db()
             try:
                 db.execute("begin immediate")  # check and claim in one write transaction
                 row = None
-                if not db.execute("select 1 from jobs where status = 'running' and backend = ?", (lane,)).fetchone():
-                    row = db.execute("select * from jobs where status = 'queued' and backend = ? "
-                                     "order by created_utc limit 1", (lane,)).fetchone()
+                if not db.execute("select 1 from jobs where status = 'running'").fetchone():
+                    row = db.execute("select * from jobs where status = 'queued' "
+                                     "order by created_utc limit 1").fetchone()
                 if row:
                     db.execute("update jobs set status = 'running', started_utc = ?, pid = null where run_id = ?",
                                (utc(), row["run_id"]))
@@ -269,6 +276,37 @@ class JobQueue:
             stop.wait(every_s)
 
 
+# ---------------------------------------------------------------------------------------------- the machine lease
+def _lease(cfg: MachineConfig) -> Path:
+    return cfg.workspace / "in_use.json"
+
+
+def hold(cfg: MachineConfig, what: str) -> None:
+    """Mark the machine as in use by this process (the assistant while its model is loaded). Jobs wait for it."""
+    cfg.workspace.mkdir(parents=True, exist_ok=True)
+    write_json_atomic(_lease(cfg), {"pid": os.getpid(), "host": socket.gethostname(), "what": what, "utc": utc()})
+
+
+def release(cfg: MachineConfig) -> None:
+    try:
+        d = json.loads(_lease(cfg).read_text(encoding="utf-8"))
+        if d.get("pid") == os.getpid() and d.get("host") == socket.gethostname():
+            _lease(cfg).unlink()
+    except (OSError, json.JSONDecodeError):
+        pass
+
+
+def holder(cfg: MachineConfig) -> dict | None:
+    """Whoever holds the machine outside the queue, if that process is still alive."""
+    try:
+        d = json.loads(_lease(cfg).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if d.get("host") == socket.gethostname() and not pid_alive(d.get("pid")):
+        return None  # left behind by a process that ended without letting go
+    return d
+
+
 # Started through a middle process that exits at once, a job is no longer a descendant of whatever started it, so
 # stopping the GUI server, even by killing its whole process tree, leaves the job running. Its own session (its own
 # process group on Windows, which CTRL_BREAK can reach) keeps it clear of Ctrl+C and a closed terminal too.
@@ -337,6 +375,8 @@ def run_task(cfg: MachineConfig, q: JobQueue, run_id: str, job: dict) -> int:
             rec = ingest.run_clear(spec, run_dir, run_id, cancelled=stop.is_set, log=log)
         elif spec["kind"] == "download":
             rec = run_downloads(cfg, spec, run_dir, run_id, log)
+        elif spec["kind"] == "command":
+            rec = run_command(spec, run_dir, run_id, job["name"], stop, log)
         else:
             raise ValueError(f"unknown task kind {spec['kind']!r}")
     except Exception as e:
@@ -376,3 +416,28 @@ def run_downloads(cfg: MachineConfig, spec: dict, run_dir: Path, run_id: str, lo
             log(f"FAILED {r.rel}: {e}")
     prog.finish(status)
     return prog.rec
+
+
+def run_command(spec: dict, run_dir: Path, run_id: str, name: str, stop: threading.Event, log) -> dict:
+    """A command queued with `ontherecord exclusive`: it runs alone, like any job, and its output goes to the log."""
+    rec = {"run_id": run_id, "name": name, "status": "running", "kind": "command", "argv": spec["argv"],
+           "cwd": spec["cwd"], "stages": [{"name": "command", "label": "Command"}], "items": [{"id": "command"}],
+           "cells": {"command": {"command": {"status": "running"}}}, "created_utc": utc(),
+           "host": socket.gethostname()}
+    write_json_atomic(run_dir / "run.json", rec)
+    log("$ " + " ".join(spec["argv"]))
+    with open(run_dir / "log.txt", "a", encoding="utf-8") as out:
+        p = subprocess.Popen(spec["argv"], cwd=spec["cwd"], stdout=out, stderr=subprocess.STDOUT,
+                             stdin=subprocess.DEVNULL)
+        while p.poll() is None:
+            if stop.wait(1):
+                kill_tree(p.pid)
+                p.wait()
+        code = p.returncode
+    status = "cancelled" if stop.is_set() else "done" if code == 0 else "failed"
+    log(f"exit code {code}")
+    rec.update(status=status, exit_code=code, finished_utc=utc(),
+               cells={"command": {"command": {"status": "ran" if code == 0 else status,
+                                              **({"error": f"exit code {code}"} if code else {})}}})
+    write_json_atomic(run_dir / "run.json", rec)
+    return rec

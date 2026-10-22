@@ -39,7 +39,7 @@ function showTab(name) {
   if (name === "results") refreshRuns();
   if (name === "library") refreshLibrary();
   if (name === "import") refreshImport();
-  if (name === "ask") $("#ask-input").focus();
+  if (name === "ask") { $("#ask-input").focus(); refreshAskBusy(); }
   if (name === "setup") refreshSetup();
 }
 document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
@@ -723,6 +723,15 @@ async function pickFolder(start, done) {
 }
 
 // ---------------------------------------------------------------- ask (the assistant)
+// One thing runs at a time: while a job runs or waits, the assistant is off, and the tab says so up front.
+async function refreshAskBusy() {
+  const jobs = await api("/api/jobs").catch(() => []);
+  const j = jobs.find((x) => x.status === "running") || jobs.find((x) => x.status === "queued");
+  $("#ask-busy").className = j ? "msg warn" : "msg";
+  $("#ask-busy").textContent = j ? `The computer is ${j.status === "running" ? "working on" : "about to start"} "${j.name}", so the assistant is switched off until it finishes: that way the job gets all of the memory. The Jobs tab shows progress.` : "";
+}
+setInterval(() => { if ($("#tab-ask").classList.contains("active")) refreshAskBusy(); }, 10000);
+
 let chatHistory = [], chatBusy = false, chatNotes = [];  // notes ride along with the next question (roles alternate)
 // Links like #play/RUN/ITEM/SECONDS (in answers and in what the assistant looked at) open the player at that moment.
 const linkify = (text) => esc(text).replace(/\(?#play\/([^\s/)]+)\/([^\s/)]+)\/(\d+)\)?/g,
@@ -748,7 +757,7 @@ async function ask(text) {
   addBubble("user", esc(text));
   chatHistory.push({ role: "user", content: chatNotes.length ? `${chatNotes.join(" ")}\n\n${text}` : text });
   chatNotes = [];
-  const wait = addBubble("bot thinking", "Thinking… (on this computer's processor, this can take half a minute)");
+  const wait = addBubble("bot thinking", "Thinking… (on a laptop this can take half a minute)");
   try {
     const r = await api("/api/assistant", { json: { messages: chatHistory } });
     chatHistory = r.messages;

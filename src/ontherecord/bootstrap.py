@@ -110,10 +110,12 @@ def fit(hw: dict) -> dict:
     """Which model for each job, and where the assistant runs, given this machine."""
     gpu_gb = (hw["gpu"] or {}).get("memory_gb", 0)
     big = gpu_gb >= 16 or hw["ram_gb"] >= 32
+    apple = (hw["gpu"] or {}).get("vendor") == "apple"
     return {
-        "assistant": "gemma-4-E4B" if hw["ram_gb"] >= 12 else "gemma-4-E2B",
-        # on a GPU shared with Whisper and the 26B, the assistant stays on the CPU; a Mac shares one memory anyway
-        "assistant_gpu_layers": 999 if (hw["gpu"] or {}).get("vendor") == "apple" else 0,
+        # Nothing runs beside the assistant, so it gets the whole card: E2B for a 4 GB laptop card, E4B from 6 GB.
+        # With no card (or a smaller one) it runs on the processor, where the smaller E2B answers about twice as fast.
+        "assistant": ("gemma-4-E4B" if (hw["ram_gb"] >= 16 if apple else gpu_gb >= 6) else "gemma-4-E2B"),
+        "assistant_gpu_layers": "auto",  # llama-server puts as many layers on the GPU as fit
         "extraction": "gemma-4-26B" if big else "gemma-4-E4B",
         "extraction_offload": ("-ngl 999 --n-cpu-moe 8; -ngl 999 --n-cpu-moe 14; -ngl 999 --n-cpu-moe 22"
                                if gpu_gb >= 16 else "-ngl 999" if (hw["gpu"] or {}).get("vendor") == "apple"

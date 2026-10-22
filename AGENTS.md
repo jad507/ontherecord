@@ -19,8 +19,13 @@ ontherecord cancel RUN_ID                                    # stop it cleanly; 
   `submit` and `jobs` say so when nothing is. Only one dispatcher runs per workspace; a second one waits.
 - A job runs in its own process, detached from whatever started it: closing the GUI, or killing its process tree,
   does not stop the job. To stop it, use `ontherecord cancel`, which removes partial outputs and records the cancel.
-- `ontherecord run RECIPE` runs in the foreground instead, outside the queue. Use it only when nothing else uses
-  the GPU.
+- One thing runs at a time on the machine: a job of any kind starts only when no other job is running, and the
+  assistant switches off while a job runs or waits. Most machines this runs on cannot fit two models at once, and
+  timings taken while something else runs mean little.
+- So never run heavy work outside the queue (a model, an evaluation, ffmpeg, a script that loads torch). Queue it:
+  `ontherecord exclusive -- COMMAND [ARGS...]` waits its turn, runs alone, prints the output and exits with the
+  command's exit code. `ontherecord run RECIPE` runs a recipe in the foreground, outside the queue: only when the
+  queue is empty (`ontherecord jobs`) and nobody is using the Ask tab.
 
 Exit codes for `run`, `wait` and `submit --wait`: 0 done, 1 failed, 2 recipe error, 3 cancelled.
 
@@ -28,11 +33,11 @@ Exit codes for `run`, `wait` and `submit --wait`: 0 done, 1 failed, 2 recipe err
 
 ```bash
 ontherecord devices --json                                   # what is plugged in
-ontherecord ingest SOURCE --project NAME --wait --json       # copy, verify, name, catalog (the "io" lane)
+ontherecord ingest SOURCE --project NAME --wait --json       # copy, verify, name, catalog (a queued job)
 ontherecord clear IMPORT_RUN_ID --wait                       # delete those files from the device
 ```
 
-Imports run in their own lane, so they do not wait for GPU jobs. `clear` refuses unless every imported file was
+Imports wait their turn in the queue like any job. `clear` refuses unless every imported file was
 verified, re-reads each file from the device before deleting it, and never deletes a file that was not imported.
 Do not run `clear` unless the person asked for it in so many words.
 

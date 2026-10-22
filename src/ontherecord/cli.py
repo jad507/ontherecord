@@ -14,8 +14,9 @@
     ontherecord cancel RUN_ID              cancel a queued or running job, and wait until it has stopped
     ontherecord serve                      the GUI at http://127.0.0.1:8765, which also runs the queue
     ontherecord dispatch                   run the queue without the GUI
+    ontherecord exclusive -- CMD ARGS      run a command as a queued job, alone on the machine
 
-  Imports from cameras and drives (in their own lane of the queue, beside the GPU work):
+  Imports from cameras and drives (queued jobs, like everything else):
     ontherecord devices                    removable drives and camera cards plugged in
     ontherecord ingest SOURCE --project P  copy, verify, name and file everything into the archive
     ontherecord clear IMPORT_RUN_ID        then delete those files from the device, each re-checked first
@@ -235,6 +236,29 @@ def cmd_submit(args) -> int:
     return _wait(q, run_id, args.json) if args.wait else 0
 
 
+def cmd_exclusive(args) -> int:
+    """Queue a command as a job of its own and wait for it: it starts only when nothing else is running, and nothing
+    starts beside it. For agents and scripts doing heavy work (an evaluation, a conversion) on a machine that the
+    queue may be using."""
+    from .jobs import JobQueue
+    argv = args.command[1:] if args.command[:1] == ["--"] else args.command
+    if not argv:
+        raise SystemExit("usage: ontherecord exclusive -- COMMAND [ARGS...]")
+    q = JobQueue(config_from(args))
+    run_id = q.submit_task("command", {"argv": argv, "cwd": os.getcwd()}, f"command {Path(argv[0]).name}")
+    print(run_id, file=sys.stderr)
+    if not q.dispatcher():
+        print("note: nothing is running this workspace's queue, so the command will wait. Start `ontherecord serve` "
+              "(the GUI) or `ontherecord dispatch`.", file=sys.stderr)
+    _wait(q, run_id, as_json=False, show=False)
+    log = q.store.run_dir(run_id) / "log.txt"
+    if log.is_file():
+        sys.stdout.write(log.read_text(encoding="utf-8", errors="replace"))
+    rec_path = q.store.run_dir(run_id) / "run.json"
+    rec = json.loads(rec_path.read_text(encoding="utf-8")) if rec_path.is_file() else {}
+    return 3 if rec.get("status") == "cancelled" else int(rec.get("exit_code", 1) or 0) if rec else 1
+
+
 def cmd_wait(args) -> int:
     from .jobs import JobQueue
     return _wait(JobQueue(config_from(args)), args.run_id, args.json)
@@ -243,7 +267,7 @@ def cmd_wait(args) -> int:
 EXIT = {"done": 0, "failed": 1, "cancelled": 3}
 
 
-def _wait(q, run_id: str, as_json: bool) -> int:
+def _wait(q, run_id: str, as_json: bool, show: bool = True) -> int:
     """Follow a job until it ends, with one progress line on stderr whenever its cells change."""
     from .jobs import FINAL
     last, warned = None, False
@@ -272,7 +296,7 @@ def _wait(q, run_id: str, as_json: bool) -> int:
         q.reconcile()
     if rec and as_json:
         print(json.dumps({**rec, "problems": problems(q.store, rec)}, indent=1, ensure_ascii=False))
-    elif rec:
+    elif rec and show:
         print(grid([s["name"] for s in rec["stages"]], rec["cells"]))
         for p in problems(q.store, rec):
             label = f"{p['status'].upper()} {p['name']}" if p["kind"] == "check" else p["status"]
@@ -505,6 +529,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--wait", action="store_true", help="then follow it until it ends (exit code as for wait)")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_submit)
+    p = sub.add_parser("exclusive", help="run a command as a queued job, alone on the machine; prints its output and "
+                                         "exits with its exit code")
+    p.add_argument("command", nargs=argparse.REMAINDER, help="-- COMMAND [ARGS...]")
+    p.set_defaults(fn=cmd_exclusive)
     p = sub.add_parser("wait", help="block until a job ends; exit 0 done, 1 failed, 3 cancelled")
     p.add_argument("run_id")
     p.add_argument("--json", action="store_true", help="print the final run record, plus a flat list of problems")

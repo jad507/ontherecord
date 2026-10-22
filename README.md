@@ -114,7 +114,7 @@ results from different machines are never mistaken for each other.
 ## Status
 
 Built in October 2026 for Penn State CSRAI's Research-a-thon. Working on Linux: the runner, store, receipts and
-checks; the council pipeline stages; the job queue (a GPU lane and a copying lane); the Library and player; imports
+checks; the council pipeline stages; the job queue (one job at a time, the assistant included); the Library and player; imports
 with verified copies; the assistant and its MCP server (`pytest` covers caching, wiring, the queue, cancel,
 imports, clearing, the library and the MCP server). Next: installers for Windows and macOS and a Docker image, a
 first-run setup page, a view comparing two runs, the stress-test pipelines, and a Slurm backend.

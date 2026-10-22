@@ -37,9 +37,10 @@ stage_env:
 # archive's catalog and import manifests live inside it, in _ingests/.
 # archive: ~/OnTheRecord-Archive
 
-# The assistant (the Ask tab, `ontherecord ask`): a small model on llama-server. gpu_layers 0 keeps it on the CPU,
-# so it never takes GPU memory from a job; 999 puts it all on the GPU. `endpoint` uses a server already running.
+# The assistant (the Ask tab, `ontherecord ask`): a small model on llama-server. It never runs beside a job (it
+# switches off while one runs or waits), so by default it takes as much of the GPU as fits (gpu_layers: auto);
+# a number sets the layers on the GPU, 0 keeps it on the CPU. `endpoint` uses a server already running.
 # assistant:
-#   model: gemma-4-E4B-it-UD-Q8_K_XL.gguf       # relative to models_root
-#   gpu_layers: 0
+#   model: gemma-4-E4B_q4_0-it.gguf             # relative to models_root
+#   gpu_layers: auto
 #   context: 16384

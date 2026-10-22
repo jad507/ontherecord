@@ -1,8 +1,10 @@
 """The assistant: a small local model that answers plain-English questions and starts work through the tools in
 tools.py. It runs on llama-server, started on first use and stopped after a while unused.
 
-By default it runs on the CPU, so it never takes GPU memory from a transcription or extraction job and never
-changes their timings. A machine with GPU memory to spare can set `assistant: {gpu_layers: 999}` in machine.yaml.
+It never runs beside a job. While a job runs or waits, it answers with a fixed note instead of loading its model;
+while its model is loaded it holds the machine (jobs.hold), and it unloads within seconds of a job being queued, so
+the job starts with all of the memory. With the machine to itself it takes the GPU too: by default llama-server
+fits as many layers on the card as there is room for (`gpu_layers: auto`); a number sets it, 0 keeps it on the CPU.
 
 The model never acts on anything marked `confirm` (starting, stopping or importing): it proposes, and the person
 presses a button. Every tool call and its result is returned with the reply, so the GUI can show what the answer
@@ -19,6 +21,7 @@ from datetime import date
 from pathlib import Path
 
 from .config import MachineConfig
+from .jobs import JobQueue, hold, release
 from .llm import ManagedLlamaServer
 from .tools import Toolbox, openai_tools
 
@@ -53,6 +56,16 @@ def proposal(p: dict) -> str:
     return f"I can run {p['tool']} with {a}."
 
 
+def busy_note(job: dict) -> str:
+    """What the assistant says instead of answering while the computer works on something."""
+    what = f'"{job["name"]}"'
+    if job["status"] == "running":
+        return (f"The computer is working on {what} right now, so I'm switched off until it finishes: that way it "
+                "gets all of the memory. The Jobs tab shows how far it has got. Ask me again when it's done.")
+    return (f"The computer is about to start {what}, so I'm switched off until it finishes: that way it gets all of "
+            "the memory. The Jobs tab shows how far it has got. Ask me again when it's done.")
+
+
 def time_forms(t: str) -> set[str]:
     """'0:08:23' -> {'0:08:23', '8:23'}; '1:02:03' -> {'1:02:03'}; '17:05' -> {'17:05'}."""
     parts = [int(p) for p in t.split(":")]
@@ -77,10 +90,12 @@ def time_links(steps: list[dict]) -> dict[str, str]:
 class Assistant:
     def __init__(self, cfg: MachineConfig, toolbox: Toolbox | None = None, idle_s: float = 900):
         self.cfg, self.tb, self.idle_s = cfg, toolbox or Toolbox(cfg), idle_s
+        self.queue = JobQueue(cfg)
         self.server: ManagedLlamaServer | None = None
         self.url: str | None = cfg.assistant.get("endpoint")  # an already-running OpenAI-compatible server
         self.lock = threading.Lock()
         self.last_used = 0.0
+        self.answering = 0
         threading.Thread(target=self._reaper, daemon=True).start()
 
     # ------------------------------------------------------------------ the model server
@@ -93,20 +108,28 @@ class Assistant:
             raise FileNotFoundError(f"the assistant's model is not at {model}; set assistant.model in machine.yaml")
         log_dir = self.cfg.workspace / "assistant"
         log_dir.mkdir(parents=True, exist_ok=True)
+        layers = a.get("gpu_layers", "auto")
+        args = "--jinja" if layers == "auto" else f"-ngl {layers} --jinja"  # unset, llama-server fits the card
         self.server = ManagedLlamaServer(self.cfg.tool("llama_server"), model, int(a.get("context", 16384)),
-                                         [f"-ngl {a.get('gpu_layers', 0)} --jinja"], log_dir / "llama-server.log",
-                                         log=lambda m: None)
+                                         [args], log_dir / "llama-server.log", log=lambda m: None)
         self.url = self.server.url
         return self.url
 
+    def _unload(self) -> None:
+        if self.server:
+            self.server.stop()
+            self.server.log_file.close()
+            self.server, self.url = None, self.cfg.assistant.get("endpoint")
+        release(self.cfg)
+
     def _reaper(self) -> None:
         while True:
-            time.sleep(30)
+            time.sleep(5)
             with self.lock:
-                if self.server and time.time() - self.last_used > self.idle_s:
-                    self.server.stop()
-                    self.server.log_file.close()
-                    self.server, self.url = None, self.cfg.assistant.get("endpoint")
+                if self.answering or not self.server:
+                    continue
+                if time.time() - self.last_used > self.idle_s or self.queue.busy():
+                    self._unload()  # a job is waiting: it gets the machine
 
     def _complete(self, url: str, messages: list[dict]) -> dict:
         body = {"messages": messages, "tools": openai_tools(self.tb), "temperature": 0.0, "seed": 42,
@@ -121,7 +144,27 @@ class Assistant:
         Returns the reply, the tool calls made (with results), any actions waiting for the person to confirm,
         and the conversation to send back next time."""
         with self.lock:
+            hold(self.cfg, "the assistant")  # first, so a job queued from now on waits for this answer
+            job = self.queue.busy()
+            if job:
+                if not self.server:
+                    release(self.cfg)
+                note = busy_note(job)
+                return {"reply": note, "steps": [], "pending": [], "busy": True, "links": {}, "seconds": 0,
+                        "messages": [*messages, {"role": "assistant", "content": note}]}
+            self.answering += 1
             self.last_used = time.time()
+        try:
+            return self._chat(messages, max_rounds)
+        finally:
+            with self.lock:
+                self.answering -= 1
+                self.last_used = time.time()
+                if not self.server:
+                    release(self.cfg)  # a server elsewhere (`endpoint`), or none started: nothing here is in use
+
+    def _chat(self, messages: list[dict], max_rounds: int) -> dict:
+        with self.lock:
             url = self._ensure()
         msgs = [{"role": "system", "content": SYSTEM.format(today=date.today().isoformat())}, *messages]
         tools = {t.name: t for t in self.tb.tools()}
@@ -159,8 +202,6 @@ class Assistant:
             kept = [x for x in re.split(r"(?<=[.!?])\s+", reply) if x and not ACTION_WORDS.search(x)]
             reply = " ".join(kept + [proposal(p) for p in pending]) + " Press Go ahead to start it, or No to leave it."
             msgs[-1] = {"role": "assistant", "content": reply}
-        with self.lock:
-            self.last_used = time.time()
         return {"reply": reply, "steps": steps, "pending": pending, "messages": msgs[1:],
                 "links": time_links(steps), "seconds": round(time.perf_counter() - t0, 1)}
 
@@ -170,6 +211,4 @@ class Assistant:
 
     def stop(self) -> None:
         with self.lock:
-            if self.server:
-                self.server.stop()
-                self.server = None
+            self._unload()
