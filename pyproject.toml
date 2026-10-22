@@ -17,8 +17,8 @@ dependencies = ["pyyaml>=6", "psutil>=5.9"]
 [project.optional-dependencies]
 server = ["fastapi>=0.110", "uvicorn>=0.29"]
 download = ["yt-dlp>=2026.3.17"]
-audio = ["numpy>=1.26", "soundfile>=0.12", "faster-whisper>=1.2", "pyannote.audio>=4.0.7", "torch>=2.11",
-         "torchaudio>=2.11", "av<16"]  # PyAV 16 breaks faster-whisper's decode_audio
+audio = ["numpy>=1.26", "soundfile>=0.12", "faster-whisper>=1.2", "pyannote.audio>=4.0.7", "torch==2.11.*",
+         "torchaudio==2.11.*", "av<16"]  # PyAV 16 breaks faster-whisper's decode_audio
 mcp = ["mcp>=2.3"]
 # Everything in one environment: what the installers and the Docker image use.
 all = ["ontherecord[server,download,audio,mcp]"]
@@ -30,11 +30,11 @@ ontherecord = "ontherecord.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
-# Windows gets PyTorch's CUDA 12.8 builds (PyPI has only CPU builds for Windows); Linux's PyPI builds already carry
-# CUDA, and macOS's use the Apple GPU.
+# Windows and Linux get PyTorch's CUDA 12.8 builds: PyPI has only CPU builds for Windows, and PyPI's Linux builds need
+# CUDA 13 (a newer NVIDIA driver than many machines have). macOS uses PyPI's builds, which use the Apple GPU.
 [tool.uv.sources]
-torch = [{ index = "pytorch-cu128", marker = "sys_platform == 'win32'" }]
-torchaudio = [{ index = "pytorch-cu128", marker = "sys_platform == 'win32'" }]
+torch = [{ index = "pytorch-cu128", marker = "sys_platform == 'win32' or sys_platform == 'linux'" }]
+torchaudio = [{ index = "pytorch-cu128", marker = "sys_platform == 'win32' or sys_platform == 'linux'" }]
 
 [[tool.uv.index]]
 name = "pytorch-cu128"
