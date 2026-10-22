@@ -62,3 +62,32 @@ class Pair(Stage):
         joined = Path(inputs["text"]).read_text(encoding="utf-8") + " | " + Path(inputs["count"]).read_text("utf-8")
         (out / "pair.txt").write_text(joined, encoding="utf-8")
         return Result(files={"pair": "pair.txt"})
+
+
+class FakeAudio(Stage):
+    """Stands in for the audio stage: the 'audio' is the source text."""
+    name = "audio"
+    needs = ("media",)
+    makes = ("audio",)
+    settings = {"channel": Setting("left", "recorded so the player can say which channel it plays"),
+                "sample_rate": Setting(16000, "")}
+
+    def run(self, item, inputs, out: Path, settings, state, ctx) -> Result:
+        (out / "audio.txt").write_text(Path(inputs["media"]).read_text(encoding="utf-8"), encoding="utf-8")
+        return Result(files={"audio": "audio.txt"})
+
+
+class FakeTranscribe(Stage):
+    """Stands in for Whisper: one segment per line, ten seconds each."""
+    name = "transcribe"
+    needs = ("audio",)
+    makes = ("transcript",)
+    settings = {"deaf": Setting(False, "hear nothing, like Whisper on cancelled audio")}
+
+    def run(self, item, inputs, out: Path, settings, state, ctx) -> Result:
+        import json
+        lines = [] if settings["deaf"] else Path(inputs["audio"]).read_text(encoding="utf-8").splitlines()
+        segs = [{"start": 10.0 * i, "end": 10.0 * i + 9, "text": t} for i, t in enumerate(lines)]
+        (out / "transcript.json").write_text(json.dumps({"segments": segs}), encoding="utf-8")
+        return Result(files={"transcript": "transcript.json"},
+                      metrics={"words": sum(len(t.split()) for t in lines), "segments": len(segs)})

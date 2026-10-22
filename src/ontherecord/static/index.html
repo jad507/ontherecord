@@ -11,7 +11,8 @@
 <header>
   <div class="brand"><span class="mark">●</span> On the Record</div>
   <nav>
-    <button data-tab="build" class="active">Build a run</button>
+    <button data-tab="library" class="active">Library</button>
+    <button data-tab="build">Build a run</button>
     <button data-tab="jobs">Jobs</button>
     <button data-tab="results">Results</button>
   </nav>
@@ -19,8 +20,20 @@
 </header>
 
 <main>
+  <!-- LIBRARY -->
+  <section id="tab-library" class="tab active">
+    <div class="library">
+      <div class="lib-list">
+        <input id="lib-search" type="search" placeholder="Search every transcript…" autocomplete="off">
+        <div id="search-hits" hidden></div>
+        <ul id="recordings"></ul>
+      </div>
+      <div id="player" class="lib-player"><p class="muted">Pick a recording on the left.</p></div>
+    </div>
+  </section>
+
   <!-- BUILD -->
-  <section id="tab-build" class="tab active">
+  <section id="tab-build" class="tab">
     <div class="build">
       <div class="form">
         <div class="row">

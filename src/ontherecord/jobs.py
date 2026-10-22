@@ -86,7 +86,7 @@ class JobQueue:
     # ------------------------------------------------------------------ submit / list
     def submit(self, recipe_text: str, recipe_dir: Path, backend: str = "local") -> str:
         recipe = recipe_from_text(recipe_text, recipe_dir)  # raises RecipeError before anything is queued
-        run_id = new_run_id(recipe.name)
+        run_id = new_run_id(recipe.name, lambda r: self.get(r) is not None or self.store.run_dir(r).exists())
         with self._db() as db:
             db.execute("insert into jobs (run_id, name, recipe_text, recipe_dir, backend, status, created_utc) "
                        "values (?, ?, ?, ?, ?, 'queued', ?)",

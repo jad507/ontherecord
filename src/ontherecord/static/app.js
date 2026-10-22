@@ -37,6 +37,7 @@ function showTab(name) {
   document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.id === `tab-${name}`));
   if (name === "jobs") refreshJobs();
   if (name === "results") refreshRuns();
+  if (name === "library") refreshLibrary();
 }
 document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
 
@@ -404,6 +405,7 @@ function renderReceipt(r, cell) {
   $("#receipt").innerHTML = `<div class="card" data-receipt="${esc(cell.receipt)}">
     <h3>${esc(r.stage_label || r.stage)} · <span style="font-family:var(--mono)">${esc(r.item.id)}</span>
       <span class="badge b-${esc(cell.status)}">${esc(STATUS_TEXT[cell.status] || cell.status)}</span></h3>
+    <div><button class="small secondary" data-player="${esc(currentRun)}|${esc(r.item.id)}">Open in the player</button></div>
     <div class="muted" style="font-size:12px">${cell.status === "cached" ? `Reused from run ${esc(r.run_id)}. ` : ""}Took ${esc(fmtDur(r.timing.elapsed_s))} on ${esc(env.hostname)}${r.device ? " (" + esc(r.device) + ")" : ""}, finished ${esc(fmtTime(r.timing.finished_utc))}. Stage version ${esc(r.stage_version)}.</div>
     <h4>Checks</h4><ul class="checks">${checks}</ul>
     <h4>Settings <span class="muted" style="font-weight:400">(blue = changed from the default)</span></h4><table class="kv">${kvRows(r.settings, defaults)}</table>
@@ -419,6 +421,8 @@ function renderReceipt(r, cell) {
 }
 
 $("#receipt").addEventListener("click", async (e) => {
+  const pl = e.target.closest("button[data-player]");
+  if (pl) { const [run, item] = pl.dataset.player.split("|"); return openPlayer(run, item); }
   const b = e.target.closest("button[data-preview]");
   if (!b) return;
   const receipt = b.closest("[data-receipt]").dataset.receipt;
@@ -451,6 +455,143 @@ $("#modal-close").addEventListener("click", closeModal);
 $("#modal").addEventListener("click", (e) => { if (e.target.id === "modal") closeModal(); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
 
+
+// ---------------------------------------------------------------- library and player
+// A recording is played from the audio its transcript was made from (what the models heard), so the transcript lines
+// up with it exactly; the original download is one click away. Deep links: #play/RUN/ITEM/SECONDS.
+let LIB = [], playing = null, lineIdx = -1, searchTimer = null;
+const PALETTE = ["#1f77b4", "#d62728", "#2ca02c", "#9467bd", "#ff7f0e", "#17becf", "#8c564b", "#e377c2", "#7f7f7f",
+  "#bcbd22", "#3949ab", "#00897b", "#c2185b", "#5d4037", "#689f38", "#f9a825"];
+const hm = (s) => (s == null ? "" : s >= 3600 ? hms(s) : `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`);
+const outputUrl = (o) => `/api/output?receipt=${encodeURIComponent(o.receipt)}&name=${encodeURIComponent(o.name)}`;
+const marked = (text, words) => words.reduce((t, w) => t.replace(new RegExp(`(${w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi"), "<mark>$1</mark>"), esc(text));
+
+async function refreshLibrary() {
+  LIB = await api("/api/library").catch(() => []);
+  $("#recordings").innerHTML = LIB.map((r) => `<li data-rec="${esc(r.id)}" class="${playing && playing.item.id === r.id ? "sel" : ""}">
+    <div class="t">${esc(r.title)}</div>
+    <div class="d">${esc(r.date || "")}${r.duration_s ? " · " + esc(fmtDur(r.duration_s)) : ""} · ${r.views.length} run${r.views.length > 1 ? "s" : ""}</div></li>`).join("")
+    || `<li class="muted">Nothing here yet. Build a run from video links or files, and its recordings appear here.</li>`;
+}
+$("#recordings").addEventListener("click", (e) => {
+  const li = e.target.closest("li[data-rec]");
+  if (!li) return;
+  const r = LIB.find((x) => x.id === li.dataset.rec);
+  if (r) openPlayer(r.default_run, r.id);
+});
+
+async function openPlayer(run, item, t = null) {
+  showTab("library");
+  const d = await api(`/api/recording?run=${encodeURIComponent(run)}&item=${encodeURIComponent(item)}`).catch((err) => ({ error: err.message }));
+  if (d.error) { $("#player").innerHTML = `<p class="muted">Could not open it: ${esc(d.error)}</p>`; return; }
+  playing = d; lineIdx = -1;
+  history.replaceState(null, "", `#play/${encodeURIComponent(run)}/${encodeURIComponent(item)}`);
+  const rec = LIB.find((x) => x.id === item);
+  const spk = Object.keys(d.speakers);
+  const color = (s) => (s == null ? "#9e9e9e" : PALETTE[spk.indexOf(s) % PALETTE.length]);
+  d.color = color;
+  const views = rec ? rec.views.map((v) => `<option value="${esc(v.run_id)}" ${v.run_id === run ? "selected" : ""}>${esc(v.run_name)} · ${esc(fmtTime(v.created_utc))}${v.words != null ? ` · ${v.words.toLocaleString()} words` : ""}${v.failed_checks ? " · ⚠ " + v.failed_checks + " failed check" + (v.failed_checks > 1 ? "s" : "") : ""}</option>`).join("") : "";
+  const fails = d.problems.filter((p) => p.status === "fail");
+  const ch = d.audio?.settings?.channel;
+  const audioLabel = d.audio ? `What the transcript heard${ch ? ` (${ch === "average" ? "both channels averaged" : ch + " channel"}, ${d.audio.settings.sample_rate / 1000} kHz)` : ""}` : "";
+  const dur = d.duration_s || (d.segments.length ? d.segments[d.segments.length - 1].end : 0);
+  $("#player").innerHTML = `<h3>${esc(d.title)}</h3>
+    <div class="meta">${esc(d.date || "")}${d.duration_s ? " · " + esc(fmtDur(d.duration_s)) : ""}${d.channel ? " · " + esc(d.channel) : ""}
+      ${d.url ? `· <a href="${esc(d.url)}" target="_blank" rel="noopener">source</a>` : ""}
+      ${views ? `<label>Run <select id="view-pick">${views}</select></label>` : ""}</div>
+    ${fails.length ? `<div class="problems"><b>Failed checks in this run.</b> ${fails.map((p) => `${esc(p.stage)}: ${esc(p.message)}`).join("<br>")}</div>` : ""}
+    <div class="meta">${d.audio ? `<label><input type="radio" name="src" value="audio" checked> ${esc(audioLabel)}</label>` : ""}
+      ${d.media ? `<label><input type="radio" name="src" value="media" ${d.audio ? "" : "checked"}> The original download${d.media.has_video ? " (video)" : ""}</label>` : ""}</div>
+    <div id="media-wrap"></div>
+    <div class="timeline" id="timeline" title="Speakers over time: click to jump">${d.segments.map((s) => `<div class="seg" style="left:${(100 * s.start / dur).toFixed(3)}%;width:${(100 * (s.end - s.start) / dur).toFixed(3)}%;background:${color(s.speaker)}"></div>`).join("")}<div class="head" id="head"></div></div>
+    <div class="legend-spk">${spk.length ? spk.slice(0, 16).map((s) => `<span><span class="chip" style="background:${color(s)}"></span>${esc(s)} · ${esc(fmtDur(d.speakers[s]))}</span>`).join("") + (spk.length > 16 ? `<span class="muted">+${spk.length - 16} more</span>` : "")
+      : `<span class="muted">${d.segments.length ? "No speaker labels in this run." : "No transcript in this run."}</span>`}</div>
+    <div class="ptabs"><button class="small" data-ptab="lines">Transcript (${d.segments.length})</button>
+      <button class="small secondary" data-ptab="comments">Comments (${d.comments.length})</button>
+      <span class="grow"></span><input id="line-filter" type="search" placeholder="Find in this recording" style="width:200px">
+      <label class="muted" style="font-size:12px"><input type="checkbox" id="follow" checked> Follow playback</label></div>
+    <div class="lines" id="lines"></div>`;
+  setSource(d.audio ? "audio" : "media", t);
+  renderLines("lines");
+  refreshLibrary();
+}
+
+function setSource(kind, t = null) {
+  const d = playing;
+  const src = kind === "audio" ? d.audio : d.media;
+  if (!src) return;
+  const el = kind === "media" && d.media.has_video ? "video" : "audio";
+  const old = $("#media-wrap media, #media-wrap audio, #media-wrap video");
+  const at = t ?? (old ? old.currentTime : 0);
+  $("#media-wrap").innerHTML = `<${el} id="media" controls preload="metadata" src="${outputUrl(src)}"></${el}>`;
+  const m = $("#media");
+  if (at) m.addEventListener("loadedmetadata", () => { m.currentTime = at; if (t != null) m.play().catch(() => {}); }, { once: true });
+  m.addEventListener("timeupdate", onTime);
+}
+
+function renderLines(which, filter = "") {
+  const d = playing, words = filter.toLowerCase().split(/\s+/).filter(Boolean);
+  document.querySelectorAll("[data-ptab]").forEach((b) => b.classList.toggle("secondary", b.dataset.ptab !== which));
+  if (which === "comments") {
+    $("#lines").innerHTML = d.comments.map((c) => `<div class="cmt" data-t="${c.start_s}">
+      <b>${esc(c.timestamp)}</b> · ${esc(c.speaker_name || "Unidentified")}${c.residence_or_affiliation ? `, ${esc(c.residence_or_affiliation)}` : ""}
+      · <span class="badge">${esc(c.position || "")}</span><div class="muted">${esc(c.agenda_item || "")}</div><div>${esc(c.summary || "")}</div></div>`).join("")
+      || `<p class="muted" style="padding:8px">No comments were extracted in this run.</p>`;
+    return;
+  }
+  $("#lines").innerHTML = d.segments.map((s, i) => (words.length && !words.every((w) => s.text.toLowerCase().includes(w))) ? ""
+    : `<div class="line" data-i="${i}" data-t="${s.start}"><span class="tm">${hm(s.start)}</span><span class="sp"><span class="chip" style="background:${d.color(s.speaker)}"></span>${esc(s.speaker || "")}</span><span>${words.length ? marked(s.text, words) : esc(s.text)}</span></div>`).join("")
+    || `<p class="muted" style="padding:8px">${d.segments.length ? "No line matches." : "This run has no transcript for this recording."}</p>`;
+}
+
+function onTime() {
+  const m = $("#media"), d = playing;
+  if (!m || !d) return;
+  const dur = d.duration_s || m.duration || 1;
+  $("#head").style.left = `${(100 * m.currentTime / dur).toFixed(3)}%`;
+  let lo = 0, hi = d.segments.length - 1, idx = -1;
+  while (lo <= hi) { const mid = (lo + hi) >> 1; if (d.segments[mid].start <= m.currentTime) { idx = mid; lo = mid + 1; } else hi = mid - 1; }
+  if (idx === lineIdx) return;
+  document.querySelector(".line.now")?.classList.remove("now");
+  lineIdx = idx;
+  const el = document.querySelector(`.line[data-i="${idx}"]`);
+  if (el) { el.classList.add("now"); if ($("#follow")?.checked) el.scrollIntoView({ block: "nearest" }); }
+}
+
+function seek(t) { const m = $("#media"); if (m) { m.currentTime = t; m.play().catch(() => {}); } }
+$("#player").addEventListener("click", (e) => {
+  const row = e.target.closest("[data-t]");
+  if (row) return seek(+row.dataset.t);
+  const tab = e.target.closest("[data-ptab]");
+  if (tab) return renderLines(tab.dataset.ptab, $("#line-filter").value);
+  const tl = e.target.closest("#timeline");
+  if (tl) { const r = tl.getBoundingClientRect(), m = $("#media"); seek((e.clientX - r.left) / r.width * (playing.duration_s || m.duration)); }
+});
+$("#player").addEventListener("change", (e) => {
+  if (e.target.id === "view-pick") openPlayer(e.target.value, playing.item.id, $("#media")?.currentTime || null);
+  if (e.target.name === "src") setSource(e.target.value);
+});
+$("#player").addEventListener("input", (e) => { if (e.target.id === "line-filter") renderLines("lines", e.target.value); });
+
+$("#lib-search").addEventListener("input", (e) => {
+  clearTimeout(searchTimer);
+  const q = e.target.value.trim();
+  if (q.length < 2) { $("#search-hits").hidden = true; return; }
+  searchTimer = setTimeout(async () => {
+    const hits = await api(`/api/search?q=${encodeURIComponent(q)}&limit=200`).catch(() => []);
+    const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+    const by = {};
+    hits.forEach((h) => (by[h.id] = by[h.id] || []).push(h));
+    $("#search-hits").hidden = false;
+    $("#search-hits").innerHTML = `<div class="muted" style="margin-bottom:4px">${hits.length}${hits.length >= 200 ? "+" : ""} line${hits.length === 1 ? "" : "s"} in ${Object.keys(by).length} recording${Object.keys(by).length === 1 ? "" : "s"}</div>`
+      + Object.values(by).map((hs) => `<div><b>${esc(hs[0].title)}</b>${hs.slice(0, 8).map((h) => `<div class="hit" data-run="${esc(h.run_id)}" data-item="${esc(h.id)}" data-t="${h.start}"><span class="muted">${hm(h.start)}</span> ${marked(h.text, words)}</div>`).join("")}${hs.length > 8 ? `<div class="muted">+${hs.length - 8} more</div>` : ""}</div>`).join("");
+  }, 300);
+});
+$("#search-hits").addEventListener("click", (e) => {
+  const h = e.target.closest(".hit");
+  if (h) openPlayer(h.dataset.run, h.dataset.item, +h.dataset.t);
+});
+
 // ---------------------------------------------------------------- start
 (async function init() {
   const [stages, prompts, machine] = await Promise.all([api("/api/stages"), api("/api/prompts"), api("/api/machine")]);
@@ -460,5 +601,8 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal
   $("#machine").textContent = `${machine.gpu ? machine.gpu.name : "no GPU"} · workspace ${machine.workspace}`;
   await loadRecipeList();
   renderStages();
+  await refreshLibrary();
+  const m = location.hash.match(/^#play\/([^/]+)\/([^/]+)(?:\/([\d.]+))?/);
+  if (m) openPlayer(decodeURIComponent(m[1]), decodeURIComponent(m[2]), m[3] ? +m[3] : null);
   setInterval(() => { if ($("#tab-jobs").classList.contains("active")) refreshJobs(); }, 2000);
 })();

@@ -38,9 +38,15 @@ def utc() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def new_run_id(name: str) -> str:
+def new_run_id(name: str, taken=lambda run_id: False) -> str:
+    """Time and recipe name; '-2', '-3'... when that id is taken (the same recipe started twice in one second)."""
     from .recipe import slug
-    return f"{datetime.now():%Y%m%d-%H%M%S}-{slug(name, 40)}"
+    base = f"{datetime.now():%Y%m%d-%H%M%S}-{slug(name, 40)}"
+    run_id, n = base, 1
+    while taken(run_id):
+        n += 1
+        run_id = f"{base}-{n}"
+    return run_id
 
 
 def worst_check(receipt: dict) -> str:
@@ -71,7 +77,7 @@ class Runner:
     def __init__(self, recipe: Recipe, cfg: MachineConfig, run_id: str | None = None, log=print):
         self.recipe, self.cfg, self.log = recipe, cfg, log
         self.store = Store(cfg.workspace)
-        self.run_id = run_id or new_run_id(recipe.name)
+        self.run_id = run_id or new_run_id(recipe.name, lambda r: self.store.run_dir(r).exists())
         self.dir = self.store.run_dir(self.run_id)
         self.proc: subprocess.Popen | None = None
         self.cancelled = False

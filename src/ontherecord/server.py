@@ -20,11 +20,15 @@ from . import stages as registry
 from .config import MachineConfig
 from .hashing import sha256_text
 from .jobs import JobQueue
+from .library import Library
 from .recipe import RecipeError, recipe_from_text, slug
 from .runner import Runner
 from .store import Store
 
 STATIC = Path(__file__).parent / "static"
+MEDIA = {".flac": "audio/flac", ".wav": "audio/wav", ".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".aac": "audio/aac",
+         ".opus": "audio/ogg", ".ogg": "audio/ogg", ".webm": "video/webm", ".mp4": "video/mp4", ".m4v": "video/mp4",
+         ".mov": "video/quicktime", ".mkv": "video/x-matroska"}
 REPO_RECIPES = Path(__file__).resolve().parents[2] / "recipes"
 
 
@@ -42,6 +46,7 @@ def create_app(cfg: MachineConfig, dispatch: bool = True) -> FastAPI:
     app = FastAPI(title="On the Record")
     store = Store(cfg.workspace)
     queue = JobQueue(cfg)
+    library = Library(store)
     recipes_dir = cfg.workspace / "recipes"
     prompts_dir = recipes_dir / "prompts"
     prompts_dir.mkdir(parents=True, exist_ok=True)
@@ -236,7 +241,25 @@ def create_app(cfg: MachineConfig, dispatch: bool = True) -> FastAPI:
             return json.loads(p.read_text(encoding="utf-8"))
         if p.suffix in (".txt", ".csv", ".rttm", ".srt", ".vtt") and p.stat().st_size <= limit:
             return PlainTextResponse(p.read_text(encoding="utf-8", errors="replace"))
+        if p.suffix.lower() in MEDIA:  # streamed, with range requests, so the player can scrub
+            return FileResponse(p, media_type=MEDIA[p.suffix.lower()], content_disposition_type="inline")
         return FileResponse(p, filename=p.name)
+
+    # ------------------------------------------------------------------ library and player
+    @app.get("/api/library")
+    def recordings():
+        return library.recordings()
+
+    @app.get("/api/recording")
+    def recording(run: str, item: str):
+        try:
+            return library.recording(run, item)
+        except KeyError as e:
+            raise HTTPException(404, str(e))
+
+    @app.get("/api/search")
+    def search(q: str, limit: int = 200):
+        return library.search(q, limit)
 
     app.state.stop_dispatch = stop
     return app

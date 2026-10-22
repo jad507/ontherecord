@@ -158,3 +158,9 @@ def test_job_outlives_a_tree_kill_of_its_dispatcher(queue):
     assert pid and pid_alive(pid)
     assert q.cancel(rid, grace_s=20, wait=True)["status"] == "cancelled"
     assert not pid_alive(pid)
+
+
+def test_the_same_recipe_twice_in_one_second_gets_two_run_ids(queue):
+    q, base = queue
+    ids = {q.submit(recipe(0.1), base) for _ in range(3)}
+    assert len(ids) == 3

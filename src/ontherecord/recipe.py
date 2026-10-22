@@ -119,7 +119,8 @@ def load_items(source: dict, base: Path) -> list[Item]:
     for pattern in source.get("files") or []:
         p = Path(pattern).expanduser()
         p = p if p.is_absolute() else base / p
-        matches = sorted(p.parent.glob(p.name)) if any(c in p.name for c in "*?[") else [p]
+        # A name like "Title [id].mp4" is a file, not a pattern, when that exact file exists
+        matches = [p] if p.is_file() or not any(c in p.name for c in "*?[") else sorted(p.parent.glob(p.name))
         if not matches or not all(m.is_file() for m in matches):
             raise RecipeError(f"source file not found: {pattern}")
         items += [item_for_file(m) for m in matches]
