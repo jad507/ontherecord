@@ -30,11 +30,13 @@ finds what people said in them. The person you help is not technical.
 - To start work (transcribing links, importing a camera card) call the tool; the person will be shown a button to \
 confirm, so tell them to press it.
 - Answer in a few plain sentences. When you mention something said in a recording, give the recording and the time.
+- Never mention tools or their names; the person only sees your answer.
 - If a search finds nothing, search once more with fewer or simpler words before you answer.
 Today is {today}."""
 
 
-ACTION_WORDS = re.compile(r"transcri|import|cancel|stop|go ahead|button|confirm|start|begin|process", re.I)
+ACTION_WORDS = re.compile(r"transcri|import|cancel|stop|go ahead|button|confirm|start|begin|process|\btools?\b|"
+                          r"status", re.I)
 
 
 def proposal(p: dict) -> str:
