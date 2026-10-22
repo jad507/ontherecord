@@ -39,9 +39,24 @@ Do not run `clear` unless the person asked for it in so many words.
 ## The assistant's tools, and MCP
 
 `src/ontherecord/tools.py` defines the tools the in-GUI assistant uses (find_recordings, search_transcripts,
-recording_overview, read_transcript, transcribe, jobs_status, cancel_job, devices, import_device). `ontherecord mcp`
+recording_overview, read_transcript, public_comments, transcribe, jobs_status, cancel_job, devices,
+import_device). Each answers in short plain text with quotes, times and `#play/RUN/ITEM/SECONDS` links; the ones
+that start or stop work only propose, and the person confirms. Write tool descriptions for a small model: say
+what the arguments may look like (dates, words), because a 4B model will not guess that an id can be a date. `ontherecord mcp`
 serves the same tools over stdio to any MCP client, e.g. `claude mcp add ontherecord -- ontherecord mcp`.
 `evals/assistant_eval.py` scores a model on plain-English requests; run it after changing a tool's description.
+
+## Setting up a machine
+
+```bash
+ontherecord setup --check          # this machine, its programs, which models are downloaded
+ontherecord setup                  # fetch ffmpeg and llama-server if missing; write a machine config if none
+ontherecord models                 # the catalog and what fits this machine
+ontherecord models get NAME        # pinned revision, checked against Hugging Face's SHA-256
+```
+
+Model downloads are large (3 to 17 GB each): ask the person before starting one. The Hugging Face token goes in
+the machine's secrets file (`--save-token`), never in a recipe, a receipt or the log.
 
 ## Before running: plan
 

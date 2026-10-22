@@ -71,6 +71,7 @@ class Toolbox:
     def tools(self) -> list[Tool]:
         return [Tool("find_recordings", self.find_recordings), Tool("search_transcripts", self.search_transcripts),
                 Tool("recording_overview", self.recording_overview), Tool("read_transcript", self.read_transcript),
+                Tool("public_comments", self.public_comments),
                 Tool("transcribe", self.transcribe, confirm=True), Tool("jobs_status", self.jobs_status),
                 Tool("cancel_job", self.cancel_job, confirm=True), Tool("devices", self.devices),
                 Tool("import_device", self.import_device, confirm=True)]
@@ -182,6 +183,41 @@ class Toolbox:
             out.append(f"[{hms(s['start'])}] {who + ': ' if who != prev else ''}{s['text']}")
             prev = who
         return "\n".join(out)
+
+    def public_comments(self, words: str = "", meetings: str = "") -> str:
+        """Public comments across many meetings, already counted: how many, for and against, by agenda item and by
+        meeting, with a few examples. words narrows to comments about something (e.g. "data center"); meetings
+        narrows by title or date words (e.g. "November" or "budget"). Use it for questions about what the public
+        said overall."""
+        ws = [w for w in re.findall(r"[\w-]+", words.lower()) if len(w) > 2]
+        ms = [w for w in re.findall(r"[\w-]+", meetings.lower()) if len(w) > 1]
+        from .library import stem
+        found, per_meeting = [], {}
+        for r in self.library.recordings():
+            if ms and not all(m in f"{r['title']} {r['date']}".lower() for m in ms):
+                continue
+            v = self.library.recording(r["default_run"], r["id"])
+            for c in v["comments"]:
+                text = " ".join(str(c.get(k) or "") for k in ("summary", "agenda_item", "speaker_name")).lower()
+                if all(stem(w) in text for w in ws):
+                    found.append((r, v, c))
+                    per_meeting[r["title"]] = per_meeting.get(r["title"], 0) + 1
+        if not found:
+            scope = (f" about {words!r}" if ws else "") + (f" in meetings matching {meetings!r}" if ms else "")
+            return f"No extracted public comments{scope}. Comments exist only for recordings run with comment extraction."
+        from collections import Counter
+        pos = Counter((c.get("position") or "unclear") for _, _, c in found)
+        items = Counter((c.get("agenda_item") or "unknown") for _, _, c in found)
+        lines = [f"{len(found)} public comment(s) in {len(per_meeting)} meeting(s).",
+                 "Positions: " + ", ".join(f"{k} {n}" for k, n in pos.most_common()),
+                 "Most common agenda items: " + "; ".join(f"{k} ({n})" for k, n in items.most_common(5)),
+                 "By meeting: " + "; ".join(f"{k} ({n})" for k, n in sorted(per_meeting.items())), "Examples:"]
+        for r, v, c in found[:10]:
+            lines.append(f"- {v['date']} [{c['timestamp']}] {c['speaker_name'] or 'Unidentified'} ({c['position']}): "
+                         f"{c['summary']} ({link(v['run_id'], r['id'], c['start_s'] or 0)})")
+        if len(found) > 10:
+            lines.append(f"... and {len(found) - 10} more; narrow with words or meetings to see others.")
+        return "\n".join(lines)
 
     # ------------------------------------------------------------------ jobs
     def transcribe(self, links: list[str], with_comments: bool = False) -> str:

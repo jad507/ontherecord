@@ -53,3 +53,9 @@
   no_tool: true
 - ask: Did people support or oppose things at the January 29 meeting?
   call: recording_overview
+- ask: Overall, was the public for or against the data center?
+  call: public_comments
+  args: {words: data center}
+- ask: How many people spoke during public comment in the November meetings?
+  call: public_comments
+  args: {meetings: november}

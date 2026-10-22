@@ -30,7 +30,13 @@ Here, that cannot happen silently:
 - **Every output has a receipt**: settings (defaults included), input and output hashes, package versions, model
   revisions, GPU, timings, and the results of its checks.
 
-## Quick start
+## Install
+
+Non-technical users: see [INSTALL.md](INSTALL.md). Double-click the installer for your system; it installs
+Python, the packages (pinned by `uv.lock`), ffmpeg and llama.cpp (pinned and checked), offers the models this
+computer can run, and puts **On the Record** on the desktop. Linux servers: see [docker/README.md](docker/README.md).
+
+## Quick start (developers)
 
 ```bash
 python -m venv .venv && .venv/bin/pip install -e ".[server]"      # Windows: .venv\Scripts\pip
@@ -43,7 +49,7 @@ ontherecord receipt RUN_ID ITEM STAGE                              # everything 
 ontherecord serve                                                  # the GUI at http://127.0.0.1:8765
 ```
 
-The GUI has five tabs:
+The GUI has seven tabs:
 
 - **Library**: every recording, opened in a player beside its transcript. The player plays the audio the
   transcript was made from, with a timeline of who spoke when; click a line to jump there. Search across every
@@ -57,6 +63,10 @@ The GUI has five tabs:
 - **Build a run**: a form for a recipe (sources, stages, every setting with its default and help), a plan of what
   will be reused, submit and cancel.
 - **Results**: each run as a grid of items × stages; click a cell for its receipt and a preview of its output.
+  **Compare with** lines two runs up: for each item and stage, whether the outputs are byte-identical, the headline
+  number on each side (dB lost, speakers, words, comments), and which settings or inputs made the difference.
+- **Setup**: this computer and what fits it, the helper programs, the models (download buttons; every file is
+  checked against its published fingerprint), and the Hugging Face token the speaker model needs.
 
 The same queue works from the command line, for scripts and coding agents:
 
