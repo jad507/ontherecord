@@ -12,6 +12,7 @@
   <div class="brand"><span class="mark">●</span> On the Record</div>
   <nav>
     <button data-tab="library" class="active">Library</button>
+    <button data-tab="import">Import</button>
     <button data-tab="build">Build a run</button>
     <button data-tab="jobs">Jobs</button>
     <button data-tab="results">Results</button>
@@ -29,6 +30,41 @@
         <ul id="recordings"></ul>
       </div>
       <div id="player" class="lib-player"><p class="muted">Pick a recording on the left.</p></div>
+    </div>
+  </section>
+
+  <!-- IMPORT -->
+  <section id="tab-import" class="tab">
+    <div class="import">
+      <div class="imp-cols">
+        <fieldset>
+          <legend>1. From</legend>
+          <div id="devices" class="devices"></div>
+          <div class="row"><button class="secondary small" id="pick-source">Choose a folder…</button>
+            <button class="secondary small" id="refresh-devices">Look again</button></div>
+          <div class="muted" style="margin-top:6px">Importing: <code id="imp-source">nothing chosen yet</code></div>
+        </fieldset>
+        <fieldset>
+          <legend>2. To</legend>
+          <label>Archive folder <span class="row"><input id="imp-archive"><button class="secondary small" id="pick-archive">Choose…</button></span></label>
+          <label>Project <input id="imp-project" value="Project" placeholder="e.g. Reverse Telescope"></label>
+          <div class="kinds"><label><input type="checkbox" value="video" checked> Video</label>
+            <label><input type="checkbox" value="audio" checked> Audio</label>
+            <label><input type="checkbox" value="photo" checked> Photos</label>
+            <label><input type="checkbox" value="sidecar" checked> Sidecar files (.THM, .XMP…)</label>
+            <label><input type="checkbox" value="other"> Everything else</label></div>
+          <details><summary>File naming</summary>
+            <input id="imp-template" style="width:100%">
+            <div class="muted" style="font-size:12px">Tokens: {project} {device} {kind} {name} (the original file name) {stem} {ext}
+              and {date:FORMAT}, e.g. {date:%Y-%m-%d_%H%M%S}. The time and device come from each file's own metadata where it has any.</div></details>
+        </fieldset>
+      </div>
+      <div class="actions"><button class="secondary" id="imp-preview-btn">Preview</button>
+        <button id="imp-go">Copy and verify</button></div>
+      <div id="imp-msg" class="msg"></div>
+      <div id="imp-preview"></div>
+      <h3>Imports</h3>
+      <div id="imports"></div>
     </div>
   </section>
 

@@ -160,3 +160,27 @@ table.data th { position: sticky; top: 0; background: var(--panel); }
 .lib-player .meta label { display: inline-flex; align-items: center; gap: 5px; margin: 0; font-size: 12px; }
 .lib-player .meta label input[type=radio] { margin: 0; }
 .lib-player .meta select { width: auto; max-width: 100%; }
+
+/* ---------------------------------------------------------------- import */
+.import { max-width: 1100px; }
+.imp-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.imp-cols .row { display: flex; gap: 6px; align-items: center; }
+.imp-cols .row input { flex: 1; }
+.devices { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.device { text-align: left; background: var(--panel); color: var(--fg); border: 1px solid var(--line); }
+.device.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.device .muted { font-size: 12px; }
+.kinds { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 6px 0; }
+.kinds label, .imp-cols label input[type=checkbox] { display: inline-flex; align-items: center; gap: 4px; width: auto; }
+.import .actions { margin: 12px 0 6px; display: flex; gap: 8px; }
+.imp-card { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; background: var(--panel); }
+.imp-card .btns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.fs-list { max-height: 50vh; overflow: auto; border: 1px solid var(--line); border-radius: 6px; margin: 8px 0; }
+.fs-list div { padding: 5px 10px; cursor: pointer; border-bottom: 1px solid var(--line); }
+.fs-list div:hover { background: var(--sel, rgba(80, 120, 220, .08)); }
+@media (max-width: 800px) { .imp-cols { grid-template-columns: 1fr; } }
+a.button { display: inline-block; padding: 7px 14px; border-radius: 6px; border: 1px solid var(--accent); background: var(--accent);
+  color: #fff; text-decoration: none; font: 600 13px var(--sans); }
+a.button.secondary { background: var(--panel); color: var(--accent); }
+a.button.small { padding: 2px 8px; font-size: 12px; font-weight: 500; }
+.imp-cols .row input { display: inline-block; margin-top: 0; }

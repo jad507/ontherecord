@@ -37,9 +37,10 @@ from pathlib import Path
 KINDS = {
     "photo": {".jpg", ".jpeg", ".heic", ".heif", ".png", ".tif", ".tiff", ".dng", ".cr2", ".cr3", ".nef", ".nrw",
               ".arw", ".raf", ".orf", ".rw2", ".pef", ".srw", ".gpr"},
-    "video": {".mp4", ".mov", ".m4v", ".mts", ".m2ts", ".avi", ".mkv", ".mxf", ".insv", ".360", ".wmv", ".3gp"},
+    "video": {".mp4", ".mov", ".m4v", ".mts", ".m2ts", ".avi", ".mkv", ".mxf", ".insv", ".360", ".wmv", ".3gp",
+              ".webm"},
     "audio": {".wav", ".mp3", ".m4a", ".flac", ".aac", ".wma", ".ogg", ".opus", ".aif", ".aiff", ".ds2", ".dss",
-              ".amr"},
+              ".amr", ".weba"},
 }
 SIDECARS = {".xmp", ".thm", ".lrv", ".lrf", ".srt", ".xml", ".aae", ".cpi", ".bdm", ".mpl"}
 JUNK_FILES = {".ds_store", "thumbs.db", "desktop.ini", ".localized"}

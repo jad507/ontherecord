@@ -42,6 +42,14 @@ class PromptIn(BaseModel):
     text: str
 
 
+class IngestIn(BaseModel):
+    source: str
+    archive: str | None = None
+    project: str = "Project"
+    template: str | None = None
+    kinds: list[str] | None = None
+
+
 def create_app(cfg: MachineConfig, dispatch: bool = True) -> FastAPI:
     app = FastAPI(title="On the Record")
     store = Store(cfg.workspace)
@@ -244,6 +252,123 @@ def create_app(cfg: MachineConfig, dispatch: bool = True) -> FastAPI:
         if p.suffix.lower() in MEDIA:  # streamed, with range requests, so the player can scrub
             return FileResponse(p, media_type=MEDIA[p.suffix.lower()], content_disposition_type="inline")
         return FileResponse(p, filename=p.name)
+
+    # ------------------------------------------------------------------ import from cameras and drives
+    @app.get("/api/devices")
+    def devices():
+        from .ingest import volumes
+        return volumes()
+
+    @app.get("/api/fs")
+    def folders(path: str | None = None):
+        """Subfolders of a folder, for choosing a source or an archive (folders only; files are never listed)."""
+        p = Path(path).expanduser() if path else Path.home()
+        if not p.is_dir():
+            raise HTTPException(404, f"not a folder: {p}")
+        try:
+            dirs = sorted((d.name for d in p.iterdir() if d.is_dir() and not d.name.startswith(".")), key=str.lower)
+        except PermissionError:
+            dirs = []
+        return {"path": str(p.resolve()), "parent": str(p.resolve().parent) if p.resolve().parent != p.resolve()
+                else None, "dirs": dirs, "home": str(Path.home()), "archive": str(cfg.archive)}
+
+    @app.post("/api/ingest/preview")
+    def ingest_preview(body: IngestIn):
+        from .ingest import DEFAULT_TEMPLATE, KINDS, plan, scan
+        src = Path(body.source).expanduser()
+        if not src.is_dir():
+            raise HTTPException(422, f"not a folder: {src}")
+        wanted = set(body.kinds or (*KINDS, "sidecar"))
+        found = scan(src, ffprobe=cfg.tool("ffprobe"))
+        files = plan([f for f in found if f.kind in wanted], body.template or DEFAULT_TEMPLATE, body.project)
+        by_kind: dict[str, list] = {}
+        for f in found:
+            by_kind.setdefault(f.kind, [0, 0])
+            by_kind[f.kind][0] += 1
+            by_kind[f.kind][1] += f.size
+        times = sorted(f.taken for f in files if f.taken)
+        return {"source": str(src), "files": len(files), "bytes": sum(f.size for f in files),
+                "skipped": len(found) - len(files), "by_kind": by_kind,
+                "devices": sorted({f.device for f in files}), "first": times[0] if times else None,
+                "last": times[-1] if times else None,
+                "time_from": {k: sum(f.taken_from == k for f in files) for k in {f.taken_from for f in files}},
+                "sample": [{"rel": f.rel, "dest": f.dest, "taken_from": f.taken_from} for f in files[:40]]}
+
+    @app.post("/api/ingest")
+    def ingest_start(body: IngestIn):
+        from .ingest import DEFAULT_TEMPLATE
+        src = Path(body.source).expanduser()
+        if not src.is_dir():
+            raise HTTPException(422, f"not a folder: {src}")
+        spec = {"source": str(src.resolve()), "archive": str(Path(body.archive).expanduser() if body.archive
+                                                               else cfg.archive),
+                "project": body.project or "Project", "template": body.template or DEFAULT_TEMPLATE}
+        if body.kinds:
+            spec["kinds"] = body.kinds
+        return {"run_id": queue.submit_task("ingest", spec, f"import {src.name or src}")}
+
+    @app.get("/api/ingests")
+    def ingests():
+        from .ingest import clearable
+        out, clears = [], {}
+        recs = sorted((json.loads(p.read_text(encoding="utf-8")) for p in store.list_runs()),
+                      key=lambda r: r.get("created_utc") or "", reverse=True)
+        for r in recs:
+            if r.get("kind") == "clear":
+                clears.setdefault(r["clear"]["manifest"], r)
+        for r in recs:
+            if r.get("kind") != "ingest":
+                continue
+            counts: dict[str, int] = {}
+            for row in r["cells"].values():
+                st = row["ingest"]["status"]
+                counts[st] = counts.get(st, 0) + 1
+            ok, why = (False, "the import has not finished")
+            man = r.get("manifest")
+            if man and Path(man).is_file():
+                ok, why = clearable(json.loads(Path(man).read_text(encoding="utf-8")))
+            c = clears.get(man)
+            out.append({"run_id": r["run_id"], "name": r["name"], "status": r["status"],
+                        "created_utc": r.get("created_utc"), "ingest": r.get("ingest", {}), "counts": counts,
+                        "manifest": man, "clearable": ok, "why": why,
+                        "clear": {"run_id": c["run_id"], "status": c["status"], **c.get("clear", {})} if c else None,
+                        "media": [str(Path(r["ingest"]["archive"]) / f) for f in _media_files(man)] if man else []})
+        return out
+
+    def _media_files(manifest: str) -> list[str]:
+        try:
+            m = json.loads(Path(manifest).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return []
+        return [f["dest"] for f in m["files"] if f["kind"] in ("video", "audio")
+                and f["status"] in ("copied", "already archived")]
+
+    @app.post("/api/ingest/{run_id}/clear")
+    def ingest_clear(run_id: str):
+        from .ingest import clearable
+        p = store.run_dir(run_id) / "run.json"
+        if not p.is_file():
+            raise HTTPException(404, run_id)
+        r = json.loads(p.read_text(encoding="utf-8"))
+        if r.get("kind") != "ingest" or not r.get("manifest"):
+            raise HTTPException(422, f"{run_id} is not an import")
+        ok, why = clearable(json.loads(Path(r["manifest"]).read_text(encoding="utf-8")))
+        if not ok:
+            raise HTTPException(422, f"not clearing: {why}")
+        return {"run_id": queue.submit_task("clear", {"manifest": r["manifest"], "ingest_run": run_id},
+                                            f"clear {r['ingest']['volume']}"), "why": why}
+
+    @app.get("/api/ingest/{run_id}/manifest.csv")
+    def ingest_manifest(run_id: str):
+        p = store.run_dir(run_id) / "run.json"
+        r = json.loads(p.read_text(encoding="utf-8")) if p.is_file() else {}
+        man = r.get("manifest")
+        if not man:
+            raise HTTPException(404, run_id)
+        csv_path = Path(man).with_suffix(".csv")
+        if not csv_path.is_file():
+            raise HTTPException(404, f"the manifest is not at {csv_path}: is the archive's drive plugged in?")
+        return FileResponse(csv_path, filename=csv_path.name, media_type="text/csv")
 
     # ------------------------------------------------------------------ library and player
     @app.get("/api/library")

@@ -38,6 +38,7 @@ function showTab(name) {
   if (name === "jobs") refreshJobs();
   if (name === "results") refreshRuns();
   if (name === "library") refreshLibrary();
+  if (name === "import") refreshImport();
 }
 document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
 
@@ -592,12 +593,134 @@ $("#search-hits").addEventListener("click", (e) => {
   if (h) openPlayer(h.dataset.run, h.dataset.item, +h.dataset.t);
 });
 
+// ---------------------------------------------------------------- import from cameras and drives
+let impSource = null, armedClear = null, MACHINE = {}, impTimer = null;
+const gb = (b) => (b >= 1e9 ? `${(b / 1e9).toFixed(1)} GB` : `${(b / 1e6).toFixed(0)} MB`);
+const LS = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
+const DEFAULT_TEMPLATE = "{project}/{date:%Y}/{date:%Y-%m-%d}_{device}/{date:%Y-%m-%d_%H%M%S}_{device}_{name}";
+
+function impForm() {
+  return { source: impSource, archive: $("#imp-archive").value.trim() || null, project: $("#imp-project").value.trim() || "Project",
+    template: $("#imp-template").value.trim() || null, kinds: [...document.querySelectorAll(".kinds input:checked")].map((x) => x.value) };
+}
+function impMsg(text, kind = "") { const m = $("#imp-msg"); m.textContent = text; m.className = `msg ${kind}`; }
+
+async function refreshImport() {
+  if (!$("#imp-archive").value) $("#imp-archive").value = LS.get("archive") || MACHINE.config?.archive || "";
+  if (!$("#imp-template").value) $("#imp-template").value = LS.get("template") || DEFAULT_TEMPLATE;
+  if (LS.get("project") && $("#imp-project").value === "Project") $("#imp-project").value = LS.get("project");
+  const devs = await api("/api/devices").catch(() => []);
+  $("#devices").innerHTML = devs.map((d) => `<button class="device ${impSource === d.mount ? "sel" : ""}" data-mount="${esc(d.mount)}">
+      <b>${esc(d.label)}</b>${d.camera ? " · camera card" : ""}<div class="muted">${esc(d.mount)} · ${gb(d.used)} used</div></button>`).join("")
+    || `<p class="muted">No camera card or USB drive is plugged in. Plug one in and press “Look again”, or choose a folder.</p>`;
+  const [list, jobs] = await Promise.all([api("/api/ingests").catch(() => []), api("/api/jobs").catch(() => [])]);
+  const io = jobs.filter((j) => j.backend === "io" && (j.status === "queued" || j.status === "running"));
+  const waiting = io.filter((j) => !list.some((r) => r.run_id === j.run_id) && !list.some((r) => r.clear?.run_id === j.run_id));
+  $("#imports").innerHTML = waiting.map((j) => `<div class="imp-card"><b>${esc(j.name)}</b> <span class="badge b-${esc(j.status)}">${esc(j.status)}</span>
+      <span class="muted">${esc(fmtTime(j.created_utc))} · starting…</span></div>`).join("") + list.map((r) => {
+    const n = r.counts, i = r.ingest || {};
+    const counts = [n.ran && `${n.ran} copied`, n.cached && `${n.cached} already in the archive`, n.failed && `${n.failed} failed`,
+      i.skipped && `${i.skipped} not imported`, (n.pending || n.running) && `${(n.pending || 0) + (n.running || 0)} to go`].filter(Boolean).join(" · ");
+    const total = Object.values(n).reduce((a, b) => a + b, 0);
+    const cleared = r.clear ? `<div><span class="badge b-${esc(r.clear.status)}">clear ${esc(r.clear.status)}</span> ${r.clear.deleted != null ? `${r.clear.deleted} deleted from the device${r.clear.kept ? `, ${r.clear.kept} kept (see Jobs)` : ""}` : ""}</div>` : "";
+    const canClear = r.clearable && (!r.clear || r.clear.status === "failed");
+    return `<div class="imp-card"><b>${esc(r.name)}</b> <span class="badge b-${esc(r.status)}">${esc(r.status)}</span>
+      <span class="muted">${esc(fmtTime(r.created_utc))}</span>
+      <div class="muted">${esc(i.source || "")} → ${esc(i.archive || "")}${i.project ? ` / ${esc(i.project)}` : ""}</div>
+      <div>${esc(counts)}${total ? ` of ${total}` : ""}</div>${cleared}
+      <div class="muted" style="font-size:12px">${r.clearable ? "✓ " : ""}${esc(r.why)}</div>
+      <div class="btns">${r.manifest ? `<a class="button small secondary" href="/api/ingest/${encodeURIComponent(r.run_id)}/manifest.csv">Manifest (opens in Excel)</a>` : ""}
+        ${r.media.length ? `<button class="small secondary" data-transcribe="${esc(r.run_id)}">Transcribe the ${r.media.length} recording${r.media.length > 1 ? "s" : ""}</button>` : ""}
+        ${canClear ? `<button class="small danger" data-clear="${esc(r.run_id)}" ${armedClear === r.run_id ? 'data-armed="1"' : ""}>${armedClear === r.run_id ? `Click again: delete ${total - (i.skipped || 0)} files from ${esc(i.volume || "the device")}` : "Clear the device…"}</button>` : ""}
+        <button class="small secondary" data-open="${esc(r.run_id)}">Details</button></div></div>`;
+  }).join("") || `<p class="muted">No imports yet.</p>`;
+  clearTimeout(impTimer);
+  if (io.length || list.some((r) => r.status === "running" || r.clear?.status === "running")) impTimer = setTimeout(() => $("#tab-import").classList.contains("active") && refreshImport(), 2000);
+}
+
+$("#devices").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-mount]");
+  if (b) { impSource = b.dataset.mount; $("#imp-source").textContent = impSource; refreshImport(); }
+});
+$("#refresh-devices").addEventListener("click", refreshImport);
+$("#pick-source").addEventListener("click", () => pickFolder(impSource, (p) => { impSource = p; $("#imp-source").textContent = p; refreshImport(); }));
+$("#pick-archive").addEventListener("click", () => pickFolder($("#imp-archive").value, (p) => { $("#imp-archive").value = p; }));
+$("#imp-preview-btn").addEventListener("click", async () => {
+  const f = impForm();
+  if (!f.source) return impMsg("Choose a card, drive or folder first.", "err");
+  impMsg("Reading the files…");
+  try {
+    const p = await api("/api/ingest/preview", { json: f });
+    impMsg("");
+    const kinds = Object.entries(p.by_kind).map(([k, [n, b]]) => `${n} ${k} (${gb(b)})`).join(", ");
+    $("#imp-preview").innerHTML = `<div class="imp-card"><b>${p.files} files, ${gb(p.bytes)}</b> to copy${p.skipped ? `; ${p.skipped} other file(s) stay on the device` : ""}.
+      <div class="muted">${esc(kinds)} · taken ${esc((p.first || "").replace("T", " "))} to ${esc((p.last || "").replace("T", " "))} · devices: ${esc(p.devices.join(", "))}
+      · times from ${esc(Object.entries(p.time_from).map(([k, v]) => `${k}: ${v}`).join(", "))}</div>
+      ${table(p.sample, [["on the device", (r) => r.rel], ["will be saved as", (r) => r.dest], ["time from", (r) => r.taken_from]])}
+      ${p.files > p.sample.length ? `<div class="muted">… and ${p.files - p.sample.length} more</div>` : ""}</div>`;
+  } catch (err) { impMsg(err.message, "err"); }
+});
+$("#imp-go").addEventListener("click", async () => {
+  const f = impForm();
+  if (!f.source) return impMsg("Choose a card, drive or folder first.", "err");
+  LS.set("archive", $("#imp-archive").value); LS.set("project", $("#imp-project").value); LS.set("template", $("#imp-template").value);
+  try {
+    const r = await api("/api/ingest", { json: f });
+    impMsg(`Copying and verifying (${r.run_id}). You can keep working; the card stays untouched.`, "ok");
+    $("#imp-preview").innerHTML = "";
+    refreshImport();
+  } catch (err) { impMsg(err.message, "err"); }
+});
+$("#imports").addEventListener("click", async (e) => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  if (b.dataset.clear) {
+    if (!b.dataset.armed) { armedClear = b.dataset.clear; setTimeout(() => { if (armedClear === b.dataset.clear) { armedClear = null; refreshImport(); } }, 6000); return refreshImport(); }
+    armedClear = null;
+    try { const r = await api(`/api/ingest/${encodeURIComponent(b.dataset.clear)}/clear`, { method: "POST" }); impMsg(`Clearing: each file is read once more and deleted only if it still matches its archived copy (${r.run_id}).`, "ok"); }
+    catch (err) { impMsg(err.message, "err"); }
+    return refreshImport();
+  }
+  if (b.dataset.open) { currentRun = b.dataset.open; return showTab("results"); }
+  if (b.dataset.transcribe) {
+    const list = await api("/api/ingests");
+    const r = list.find((x) => x.run_id === b.dataset.transcribe);
+    form = { name: `transcribe ${r.name.replace(/^import /, "")}`, description: `The recordings from import ${r.run_id}`, urls: "",
+      files: r.media.join("\n"), stages: ["download", "audio", "diarize", "transcribe", "align", "blocks"].map((name) => ({ name, settings: {}, on_fail: "stop", as: "", from: {} })) };
+    $("#r-name").value = form.name; $("#r-desc").value = form.description; $("#r-urls").value = ""; $("#r-files").value = form.files;
+    renderStages();
+    showTab("build");
+    msg("Check the plan, then submit. The audio stage picks the channels automatically and records why.", "ok");
+  }
+});
+
+// A folder browser on this machine (folders only), for the source and the archive.
+async function pickFolder(start, done) {
+  async function show(path) {
+    let d;
+    try { d = await api(`/api/fs${path ? `?path=${encodeURIComponent(path)}` : ""}`); } catch (err) { d = await api("/api/fs"); }
+    openModal(`<h3>Choose a folder</h3><div class="muted" style="font-family:var(--mono)">${esc(d.path)}</div>
+      <div class="row" style="display:flex;gap:6px;margin-top:6px">${d.parent ? `<button class="small secondary" data-go="${esc(d.parent)}">↑ Up</button>` : ""}
+        <button class="small secondary" data-go="${esc(d.home)}">Home</button><button class="small secondary" data-go="${esc(d.archive)}">Archive</button></div>
+      <div class="fs-list">${d.dirs.map((n) => `<div data-go="${esc(d.path.replace(/[\\/]$/, "") + (d.path.includes("\\") ? "\\" : "/") + n)}">📁 ${esc(n)}</div>`).join("") || `<p class="muted" style="padding:8px">No folders inside.</p>`}</div>
+      <button data-use="${esc(d.path)}">Use this folder</button>`);
+  }
+  $("#modal-body").onclick = (e) => {
+    const g = e.target.closest("[data-go]");
+    if (g) return show(g.dataset.go);
+    const u = e.target.closest("[data-use]");
+    if (u) { closeModal(); $("#modal-body").onclick = null; done(u.dataset.use); }
+  };
+  show(start);
+}
+
 // ---------------------------------------------------------------- start
 (async function init() {
   const [stages, prompts, machine] = await Promise.all([api("/api/stages"), api("/api/prompts"), api("/api/machine")]);
   STAGES = stages; PROMPTS = prompts;
   DEFS = Object.fromEntries(stages.map((s) => [s.name, s]));
   $("#add-stage").innerHTML = stages.map((s) => `<option value="${esc(s.name)}">${esc(s.label)}</option>`).join("");
+  MACHINE = machine;
   $("#machine").textContent = `${machine.gpu ? machine.gpu.name : "no GPU"} · workspace ${machine.workspace}`;
   await loadRecipeList();
   renderStages();
