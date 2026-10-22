@@ -49,8 +49,11 @@ def main() -> int:
     ap.add_argument("--model", help="instead, run this model (relative to models_root) on its own server")
     ap.add_argument("--gpu-layers", type=int, default=0)
     ap.add_argument("--out", help="write the full results here (JSON)")
+    ap.add_argument("--only", help="run only the cases whose request contains this text")
     args = ap.parse_args()
     cases = yaml.safe_load((HERE / "assistant_cases.yaml").read_text(encoding="utf-8"))
+    if args.only:
+        cases = [c for c in cases if args.only.lower() in c["ask"].lower()]
     if args.model:
         sys.path.insert(0, str(HERE.parent / "src"))
         from ontherecord.assistant import Assistant

@@ -24,6 +24,25 @@ ontherecord cancel RUN_ID                                    # stop it cleanly; 
 
 Exit codes for `run`, `wait` and `submit --wait`: 0 done, 1 failed, 2 recipe error, 3 cancelled.
 
+## Imports from cameras and drives
+
+```bash
+ontherecord devices --json                                   # what is plugged in
+ontherecord ingest SOURCE --project NAME --wait --json       # copy, verify, name, catalog (the "io" lane)
+ontherecord clear IMPORT_RUN_ID --wait                       # delete those files from the device
+```
+
+Imports run in their own lane, so they do not wait for GPU jobs. `clear` refuses unless every imported file was
+verified, re-reads each file from the device before deleting it, and never deletes a file that was not imported.
+Do not run `clear` unless the person asked for it in so many words.
+
+## The assistant's tools, and MCP
+
+`src/ontherecord/tools.py` defines the tools the in-GUI assistant uses (find_recordings, search_transcripts,
+recording_overview, read_transcript, transcribe, jobs_status, cancel_job, devices, import_device). `ontherecord mcp`
+serves the same tools over stdio to any MCP client, e.g. `claude mcp add ontherecord -- ontherecord mcp`.
+`evals/assistant_eval.py` scores a model on plain-English requests; run it after changing a tool's description.
+
 ## Before running: plan
 
 `ontherecord plan RECIPE --json` says, for every item and stage, whether it will be `cached` (reused), `run`,

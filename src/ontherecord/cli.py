@@ -26,6 +26,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import shutil
 import subprocess
 import sys
 import time
@@ -386,6 +388,65 @@ def cmd_mcp(args) -> int:
     return 0
 
 
+def cmd_setup(args) -> int:
+    """What this machine has and can run; fetch ffmpeg and llama-server if missing; write a machine config."""
+    from . import bootstrap as b
+    from .config import user_config_dir
+    hw = b.hardware()
+    choice = b.fit(hw)
+    gpu = hw["gpu"]
+    print(f"machine   : {hw['os']} {hw['arch']}, {hw['ram_gb']} GB RAM, "
+          + (f"{gpu['name']} ({gpu['memory_gb']} GB)" if gpu else "no GPU found"))
+    print(f"fits      : assistant {choice['assistant']}, comment extraction {choice['extraction']}, "
+          f"Whisper {choice['whisper']} ({choice['whisper_compute']})")
+    home = b.home_dir()
+    cfg_path = Path(args.config_file) if args.config_file else user_config_dir() / "machine.yaml"
+    if args.check:
+        cfg = config_from(args)
+        for t in ("ffmpeg", "ffprobe", "llama_server"):
+            p = cfg.tool(t)
+            print(f"{t:10}: {p if Path(p).is_file() or shutil.which(p) else 'MISSING'}")
+        status = b.model_status(cfg.models_root or home / "models")
+        for name, ok in status.items():
+            print(f"{name:21}: {ok if isinstance(ok, str) else 'downloaded' if ok else 'not downloaded'}")
+        return 0
+    bin_dir = home / "bin"
+    tools = b.ensure_ffmpeg(bin_dir, hw)
+    print(f"ffmpeg    : {tools['ffmpeg']}")
+    tools["llama_server"] = str(b.ensure_llama(bin_dir, hw))
+    print(f"llama     : {tools['llama_server']}")
+    print(b.write_config(cfg_path, hw, tools, choice, home))
+    for d in ("workspace", "Archive", "models"):
+        (home / d).mkdir(parents=True, exist_ok=True)
+    print(f"\nnext: `ontherecord models` lists the models; `ontherecord models get NAME` downloads one.")
+    return 0
+
+
+def cmd_models(args) -> int:
+    from . import bootstrap as b
+    cfg = config_from(args)
+    root = cfg.models_root or b.home_dir() / "models"
+    if args.action == "get":
+        token = args.token or os.environ.get("HF_TOKEN") or cfg.secret_env().get("HF_TOKEN")
+        if args.token and args.save_token:
+            from .config import user_config_dir
+            print(f"saved the token in {b.save_token((cfg.source or user_config_dir() / 'x').parent, args.token)}")
+        for name in args.names:
+            if name not in b.MODELS:
+                raise SystemExit(f"no model {name!r}; the catalog: {', '.join(b.MODELS)}")
+            print(b.get_model(name, root, token, cfg.python_for("audio")))
+        return 0
+    status = b.model_status(root)
+    fit = b.fit(b.hardware())
+    for name, m in b.MODELS.items():
+        chosen = name in (fit["assistant"], fit["extraction"]) or m["role"] == "speech"
+        print(f"{'*' if chosen else ' '} {name:21} {m['bytes'] / 1e9:5.1f} GB  "
+              f"{(status[name] if isinstance(status[name], str) else 'downloaded' if status[name] else 'not downloaded'):15} {m['about']}")
+    print("\n* = what this machine should use. `ontherecord models get NAME [NAME...]` downloads; gated models need "
+          "--token (from https://huggingface.co/settings/tokens) after accepting their terms.")
+    return 0
+
+
 def cmd_cancel(args) -> int:
     from .jobs import JobQueue
     q = JobQueue(config_from(args))
@@ -463,6 +524,16 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(fn=cmd_ask)
     sub.add_parser("mcp", help="serve the assistant's tools to an MCP client (Claude Desktop, Claude Code) "
                               "over stdio").set_defaults(fn=cmd_mcp)
+    p = sub.add_parser("setup", help="check this machine, fetch ffmpeg and llama-server, write a machine config")
+    p.add_argument("--check", action="store_true", help="only report what is there")
+    p.add_argument("--config-file", help="where to write the machine config (default: the user config folder)")
+    p.set_defaults(fn=cmd_setup)
+    p = sub.add_parser("models", help="the model catalog; `models get NAME` downloads one")
+    p.add_argument("action", nargs="?", choices=["list", "get"], default="list")
+    p.add_argument("names", nargs="*")
+    p.add_argument("--token", help="a Hugging Face token, for gated models")
+    p.add_argument("--save-token", action="store_true", help="keep the token in the machine's secrets file")
+    p.set_defaults(fn=cmd_models)
     p = sub.add_parser("cancel", help="cancel a job and wait until it has stopped")
     p.add_argument("run_id")
     p.add_argument("--grace", type=float, default=60, help="seconds to let it stop before killing it")

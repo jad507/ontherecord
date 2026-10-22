@@ -165,8 +165,9 @@ class Toolbox:
         return "\n".join(lines)
 
     def read_transcript(self, recording_id: str, from_minute: int = 0, minutes: int = 10) -> str:
-        """Read part of one recording's transcript, with times and speakers, starting at from_minute, for up to
-        15 minutes at a time."""
+        """Show what was said in part of one recording (its transcript, with times and speakers): from_minute on,
+        for up to 15 minutes. recording_id can be the id, or the meeting's date or title words, e.g. "January 29".
+        For "the first five minutes" use from_minute=0, minutes=5."""
         r = self._match(recording_id)
         if not r:
             return f"No single recording matches {recording_id!r}. Use find_recordings to get its id."

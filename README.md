@@ -43,15 +43,38 @@ ontherecord receipt RUN_ID ITEM STAGE                              # everything 
 ontherecord serve                                                  # the GUI at http://127.0.0.1:8765
 ```
 
-The GUI builds a run from a form (sources, stages, every setting with its default and help), checks the plan,
-submits it to a job queue, cancels it, and shows each run as a grid of items × stages; click a cell for its receipt
-and a preview of its output. The same queue works from the command line, for scripts and coding agents:
+The GUI has five tabs:
+
+- **Library**: every recording, opened in a player beside its transcript. The player plays the audio the
+  transcript was made from, with a timeline of who spoke when; click a line to jump there. Search across every
+  transcript at once, and see the public comments and any failed checks for that run.
+- **Ask**: plain-English questions ("where did people talk about the data center?", "transcribe this link") to a
+  small model running on this computer. It answers from the transcripts, gives times you can click, and shows what
+  it looked at. Anything that starts work waits for you to press a button.
+- **Import**: copy a camera card or drive into an archive. Every copy is verified by hash, files are named by date
+  and camera, and a manifest opens in Excel. The card is cleared only when you ask, and only of files that still
+  match their archived copies.
+- **Build a run**: a form for a recipe (sources, stages, every setting with its default and help), a plan of what
+  will be reused, submit and cancel.
+- **Results**: each run as a grid of items × stages; click a cell for its receipt and a preview of its output.
+
+The same queue works from the command line, for scripts and coding agents:
 
 ```bash
 ontherecord submit RECIPE --wait --json    # queue a run and follow it; exit 0 done, 1 failed, 3 cancelled
 ontherecord jobs                           # what is queued, running and finished
 ontherecord cancel RUN_ID                  # stop it cleanly
 ontherecord dispatch                       # run the queue on a machine without the GUI
+```
+
+Imports, the assistant and MCP work from the command line too:
+
+```bash
+ontherecord devices                        # cards and drives plugged in
+ontherecord ingest /media/me/EOS_DIGITAL --project "Reverse Telescope" --wait
+ontherecord clear IMPORT_RUN_ID            # delete the verified files from the card
+ontherecord ask "what did people say about parking?"
+claude mcp add ontherecord -- ontherecord mcp   # the assistant's tools in Claude Code (or Claude Desktop)
 ```
 
 [AGENTS.md](AGENTS.md) has the details an agent needs: JSON output, where results live, the HTTP API, the rules.
@@ -80,11 +103,11 @@ results from different machines are never mistaken for each other.
 
 ## Status
 
-Built in October 2026 for Penn State CSRAI's Research-a-thon. Working on Linux: the runner, store, receipts, checks,
-the council pipeline stages, the job queue, the GUI and the agent-facing commands (`pytest` covers caching, reuse,
-check blocking, wiring, the queue and cancel). Next: a view comparing two runs, the stress-test pipelines
-(StressTest, StressPresso, WildStressTest and the WhiStress cascade), a Slurm backend, and testing on Windows and
-macOS.
+Built in October 2026 for Penn State CSRAI's Research-a-thon. Working on Linux: the runner, store, receipts and
+checks; the council pipeline stages; the job queue (a GPU lane and a copying lane); the Library and player; imports
+with verified copies; the assistant and its MCP server (`pytest` covers caching, wiring, the queue, cancel,
+imports, clearing, the library and the MCP server). Next: installers for Windows and macOS and a Docker image, a
+first-run setup page, a view comparing two runs, the stress-test pipelines, and a Slurm backend.
 
 Built by Jeffrey De Lucca (jad507@psu.edu) with Claude Code.
 MIT licensed (see [LICENSE](LICENSE)). To cite it, see [CITATION.cff](CITATION.cff).
