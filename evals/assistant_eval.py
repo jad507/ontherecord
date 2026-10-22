@@ -23,8 +23,9 @@ def check(case: dict, out: dict) -> tuple[bool, str]:
     calls = [(s["tool"], s["args"]) for s in out["steps"]]
     if case.get("no_tool"):
         return (not calls, "answered without tools" if not calls else f"called {calls}")
+    allowed = case["call"] if isinstance(case["call"], list) else [case["call"]]
     for tool, args in calls:
-        if tool != case["call"]:
+        if tool not in allowed:
             continue
         bad = []
         for k, want in (case.get("args") or {}).items():
@@ -40,7 +41,7 @@ def check(case: dict, out: dict) -> tuple[bool, str]:
         if not bad:
             return True, f"{tool} {json.dumps(args)}"
         return False, f"{tool} with " + "; ".join(bad)
-    return False, f"never called {case['call']}; called {[c[0] for c in calls] or 'nothing'}"
+    return False, f"never called {' or '.join(allowed)}; called {[c[0] for c in calls] or 'nothing'}"
 
 
 def main() -> int:

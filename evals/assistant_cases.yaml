@@ -1,4 +1,5 @@
-# Plain-English requests for the assistant, and what a good answer must do. `call` is a tool the assistant must
+# Plain-English requests for the assistant, and what a good answer must do. `call` is a tool (or a list of
+# acceptable tools) the assistant must
 # call (or propose, for tools that wait for a button) somewhere in its turn; `args` are checks on that call's
 # arguments: a string must appear in the value (any case), a number must be within 2. `no_tool: true` means it
 # should answer without tools. These run against whatever is in the library, so they check the choice of tool and
@@ -23,7 +24,7 @@
 - ask: What happened at the January 29 meeting?
   call: recording_overview
 - ask: Who spoke during public comment at the January 29 council meeting?
-  call: recording_overview
+  call: [recording_overview, public_comments]
 - ask: Read me the first five minutes of the January 29 meeting.
   call: read_transcript
   args: {from_minute: 0}
