@@ -52,6 +52,7 @@ class MachineConfig:
     env_file: Path | None = None                              # KEY=VALUE lines passed to stage processes
     stage_env: dict[str, str] = field(default_factory=dict)   # plain environment settings for stage processes
     cookies_file: Path | None = None                          # yt-dlp cookies; never recorded
+    archive: Path = field(default_factory=lambda: Path.home() / "OnTheRecord-Archive")  # where imports are filed
 
     def python_for(self, group: str) -> str:
         """The interpreter for a stage group; the current one when the config names none."""
@@ -88,6 +89,7 @@ class MachineConfig:
             "envs": {k: str(v) for k, v in self.envs.items()},
             "tools": dict(self.tools), "models_root": str(self.models_root) if self.models_root else None,
             "env_file": "set" if self.env_file else None, "stage_env": dict(self.stage_env),
+            "archive": str(self.archive),
         }
 
 
@@ -106,4 +108,6 @@ def load_config(path: str | Path | None = None) -> MachineConfig:
     cfg.env_file = _path(raw.get("env_file"))
     cfg.stage_env = {k: str(v) for k, v in (raw.get("stage_env") or {}).items()}
     cfg.cookies_file = _path(raw.get("cookies_file"))
+    if raw.get("archive"):
+        cfg.archive = _path(raw["archive"])
     return cfg

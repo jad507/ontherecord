@@ -31,3 +31,7 @@ stage_env:
   HF_HUB_OFFLINE: "1"     # use models already in the Hugging Face cache; no network, no token needed
 
 # cookies_file: ~/youtube_cookies.txt   # only if YouTube insists you sign in; never recorded
+
+# Where imports from cameras and drives are filed (Import tab, `ontherecord ingest`). An external drive is fine: the
+# archive's catalog and import manifests live inside it, in _ingests/.
+# archive: ~/OnTheRecord-Archive

@@ -4,8 +4,10 @@ Jobs live in SQLite in the workspace (`jobs.db`), so the queue survives the GUI 
 runs as its own process (`python -m ontherecord.cli run-job RUN_ID`), detached from whatever started it and in its
 own process group, so it keeps going when the browser tab or the GUI server closes and can be cancelled as a unit.
 
-One job runs at a time per workspace: on a single GPU, two models rarely fit at once, and timings from overlapping
-jobs would not mean much. One process runs the queue (the GUI's `serve`, or the headless `dispatch`); it writes a
+Jobs run in two lanes, one job at a time in each. The "local" lane runs recipes: on a single GPU, two models rarely
+fit at once, and timings from overlapping jobs would not mean much. The "io" lane copies files (imports from a
+camera or drive, and clearing them afterwards), which needs the disks rather than the GPU, so a card can be
+imported while a long transcription runs. One process runs the queue (the GUI's `serve`, or the headless `dispatch`); it writes a
 heartbeat to `dispatcher.json`, and any other would-be dispatcher waits while that heartbeat is fresh. Jobs are also
 claimed inside a write transaction, so even two dispatchers could not start two jobs.
 
@@ -50,6 +52,7 @@ create table if not exists jobs (
 """
 
 FINAL = ("done", "failed", "cancelled")
+LANES = ("local", "io")
 HEARTBEAT_S = 30   # a dispatcher silent this long is taken as gone
 
 
@@ -84,6 +87,16 @@ class JobQueue:
         return db
 
     # ------------------------------------------------------------------ submit / list
+    def submit_task(self, kind: str, spec: dict, name: str) -> str:
+        """Queue an import or a clear (see ingest.py) in the io lane. The spec is stored as YAML like a recipe."""
+        import yaml
+        text = yaml.safe_dump({"kind": kind, "name": name, **spec}, sort_keys=False, allow_unicode=True)
+        run_id = new_run_id(name, lambda r: self.get(r) is not None or self.store.run_dir(r).exists())
+        with self._db() as db:
+            db.execute("insert into jobs (run_id, name, recipe_text, recipe_dir, backend, status, created_utc) "
+                       "values (?, ?, ?, ?, 'io', 'queued', ?)", (run_id, name, text, "", utc()))
+        return run_id
+
     def submit(self, recipe_text: str, recipe_dir: Path, backend: str = "local") -> str:
         recipe = recipe_from_text(recipe_text, recipe_dir)  # raises RecipeError before anything is queued
         run_id = new_run_id(recipe.name, lambda r: self.get(r) is not None or self.store.run_dir(r).exists())
@@ -149,16 +162,20 @@ class JobQueue:
 
     # ------------------------------------------------------------------ dispatch
     def start_next(self) -> str | None:
-        """Start the oldest queued job if nothing is running. Returns its run id."""
+        """In each lane with nothing running, start its oldest queued job. Returns the first run id started."""
+        started = [r for r in (self._start_in(lane) for lane in LANES) if r]
+        return started[0] if started else None
+
+    def _start_in(self, lane: str) -> str | None:
         with self._lock:
             self.reconcile()
             db = self._db()
             try:
                 db.execute("begin immediate")  # check and claim in one write transaction
                 row = None
-                if not db.execute("select 1 from jobs where status = 'running' and backend = 'local'").fetchone():
-                    row = db.execute("select * from jobs where status = 'queued' and backend = 'local' "
-                                     "order by created_utc limit 1").fetchone()
+                if not db.execute("select 1 from jobs where status = 'running' and backend = ?", (lane,)).fetchone():
+                    row = db.execute("select * from jobs where status = 'queued' and backend = ? "
+                                     "order by created_utc limit 1", (lane,)).fetchone()
                 if row:
                     db.execute("update jobs set status = 'running', started_utc = ?, pid = null where run_id = ?",
                                (utc(), row["run_id"]))
@@ -182,8 +199,7 @@ class JobQueue:
     def reconcile(self) -> None:
         """Bring 'running' jobs whose process has ended up to date from their run record."""
         with self._db() as db:
-            rows = db.execute("select run_id, pid, started_utc from jobs "
-                              "where status = 'running' and backend = 'local'").fetchall()
+            rows = db.execute("select run_id, pid, started_utc from jobs where status = 'running'").fetchall()
         for r in rows:
             if pid_alive(r["pid"]):
                 continue
@@ -280,12 +296,56 @@ def _age_s(iso: str | None) -> float:
 
 
 def run_job(cfg: MachineConfig, run_id: str) -> int:
-    """Entry point of a job process: run the recipe the queue holds under this run id."""
+    """Entry point of a job process: run the recipe (or the import or clear) the queue holds under this run id."""
     from .runner import Runner
     q = JobQueue(cfg)
     job = q.get(run_id)
     if not job:
         raise SystemExit(f"no job {run_id}")
+    if job["backend"] == "io":
+        return run_task(cfg, q, run_id, job)
     recipe = recipe_from_text(job["recipe_text"], Path(job["recipe_dir"]))
     rec = Runner(recipe, cfg, run_id=run_id).execute()
+    return 0 if rec["status"] == "done" else 1
+
+
+def run_task(cfg: MachineConfig, q: JobQueue, run_id: str, job: dict) -> int:
+    import shutil as sh
+    import yaml
+    from . import ingest
+    spec = yaml.safe_load(job["recipe_text"])
+    stop = threading.Event()
+    for sig in (signal.SIGINT, signal.SIGTERM, getattr(signal, "SIGBREAK", None)):
+        if sig is not None:
+            signal.signal(sig, lambda *_: stop.set())
+    run_dir = q.store.run_dir(run_id)
+    run_dir.mkdir(parents=True, exist_ok=True)
+    log_file = open(run_dir / "log.txt", "a", encoding="utf-8")
+
+    def log(msg: str) -> None:
+        line = f"[{datetime.now():%H:%M:%S}] {msg}"
+        print(line, flush=True)
+        log_file.write(line + "\n")
+        log_file.flush()
+
+    try:
+        if spec["kind"] == "ingest":
+            exiftool = cfg.tool("exiftool")
+            rec = ingest.run_ingest(spec, run_dir, run_id, cancelled=stop.is_set, log=log,
+                                    ffprobe=cfg.tool("ffprobe"), exiftool=exiftool if sh.which(exiftool) else None)
+        elif spec["kind"] == "clear":
+            rec = ingest.run_clear(spec, run_dir, run_id, cancelled=stop.is_set, log=log)
+        else:
+            raise ValueError(f"unknown task kind {spec['kind']!r}")
+    except Exception as e:
+        log(f"FAILED: {type(e).__name__}: {e}")
+        rec_path = run_dir / "run.json"
+        rec = json.loads(rec_path.read_text(encoding="utf-8")) if rec_path.is_file() else {
+            "run_id": run_id, "name": job["name"], "status": "failed", "stages": [], "items": [], "cells": {},
+            "created_utc": utc(), "host": socket.gethostname()}
+        rec.update(status="failed", error=f"{type(e).__name__}: {e}", finished_utc=utc())
+        write_json_atomic(rec_path, rec)
+        return 1
+    finally:
+        log_file.close()
     return 0 if rec["status"] == "done" else 1

@@ -15,6 +15,11 @@
     ontherecord serve                      the GUI at http://127.0.0.1:8765, which also runs the queue
     ontherecord dispatch                   run the queue without the GUI
 
+  Imports from cameras and drives (in their own lane of the queue, beside the GPU work):
+    ontherecord devices                    removable drives and camera cards plugged in
+    ontherecord ingest SOURCE --project P  copy, verify, name and file everything into the archive
+    ontherecord clear IMPORT_RUN_ID        then delete those files from the device, each re-checked first
+
   plan, show, jobs, submit and wait take --json for output a script or an agent can parse.
 """
 from __future__ import annotations
@@ -295,6 +300,66 @@ def cmd_jobs(args) -> int:
     return 0
 
 
+def _announce(run_id: str, args) -> None:
+    """The new run id; with --wait --json, only the final record is printed, as one JSON document."""
+    if not args.json:
+        print(run_id)
+    elif not args.wait:
+        print(json.dumps({"run_id": run_id}))
+
+
+def cmd_devices(args) -> int:
+    from .ingest import volumes
+    vols = volumes()
+    if args.json:
+        print(json.dumps(vols, indent=1))
+        return 0
+    for v in vols:
+        print(f"{v['mount']:40} {v['label']:20} {v['used'] / 1e9:7.1f} GB used{'  (camera card: has DCIM)' if v['camera'] else ''}")
+    if not vols:
+        print("no removable drives or cards are mounted")
+    return 0
+
+
+def cmd_ingest(args) -> int:
+    """Queue an import: copy, verify and file everything from a card or folder into the archive."""
+    from .ingest import DEFAULT_TEMPLATE
+    from .jobs import JobQueue
+    cfg = config_from(args)
+    q = JobQueue(cfg)
+    source = Path(args.source).expanduser().resolve()
+    if not source.is_dir():
+        raise SystemExit(f"not a folder: {source}")
+    spec = {"source": str(source), "archive": str(Path(args.archive).expanduser() if args.archive else cfg.archive),
+            "project": args.project, "template": args.template or DEFAULT_TEMPLATE}
+    if args.kinds:
+        spec["kinds"] = args.kinds.split(",")
+    run_id = q.submit_task("ingest", spec, f"import {source.name or source}")
+    _announce(run_id, args)
+    return _wait(q, run_id, args.json) if args.wait else 0
+
+
+def cmd_clear(args) -> int:
+    """Queue the clearing of a device after a finished import (only if every file was verified)."""
+    from .ingest import clearable
+    from .jobs import JobQueue
+    q = JobQueue(config_from(args))
+    rec_path = q.store.run_dir(args.import_run) / "run.json"
+    if not rec_path.is_file():
+        raise SystemExit(f"no import {args.import_run}")
+    rec = json.loads(rec_path.read_text(encoding="utf-8"))
+    if rec.get("kind") != "ingest" or not rec.get("manifest"):
+        raise SystemExit(f"{args.import_run} is not an import")
+    ok, why = clearable(json.loads(Path(rec["manifest"]).read_text(encoding="utf-8")))
+    if not ok:
+        raise SystemExit(f"not clearing: {why}")
+    print(why, file=sys.stderr)
+    run_id = q.submit_task("clear", {"manifest": rec["manifest"], "ingest_run": args.import_run},
+                           f"clear {rec['ingest']['volume']}")
+    _announce(run_id, args)
+    return _wait(q, run_id, args.json) if args.wait else 0
+
+
 def cmd_cancel(args) -> int:
     from .jobs import JobQueue
     q = JobQueue(config_from(args))
@@ -349,6 +414,23 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--limit", type=int, default=30)
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_jobs)
+    p = sub.add_parser("devices", help="removable drives and camera cards that are plugged in")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(fn=cmd_devices)
+    p = sub.add_parser("ingest", help="copy, verify and file a card or folder into the archive (a queued job)")
+    p.add_argument("source", help="the card or folder to import, e.g. /media/me/EOS_DIGITAL or E:\\")
+    p.add_argument("--project", default="Project", help="the archive's top folder for this material")
+    p.add_argument("--archive", help="default: the machine config's archive")
+    p.add_argument("--template", help="file naming template; see ontherecord.ingest.render")
+    p.add_argument("--kinds", help="comma-separated: photo,video,audio,sidecar,other (default: all but other)")
+    p.add_argument("--wait", action="store_true")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(fn=cmd_ingest)
+    p = sub.add_parser("clear", help="after an import, delete its verified files from the device (a queued job)")
+    p.add_argument("import_run", help="the run id of the finished import")
+    p.add_argument("--wait", action="store_true")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(fn=cmd_clear)
     p = sub.add_parser("cancel", help="cancel a job and wait until it has stopped")
     p.add_argument("run_id")
     p.add_argument("--grace", type=float, default=60, help="seconds to let it stop before killing it")
