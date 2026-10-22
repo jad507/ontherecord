@@ -361,9 +361,11 @@ async function showRun(id) {
   const stageCols = r.stages;
   $("#run-head").innerHTML = `<h3>${esc(r.name)} <span class="badge b-${esc(r.status)}">${esc(r.status)}</span></h3>
     <div class="muted">${esc(r.description || "")}</div>
+    <div id="compare-slot"></div>
     <div class="muted" style="font-size:12px;margin:4px 0 10px">${esc(r.run_id)} · ${esc(r.host)}${r.gpu ? " · " + esc(r.gpu.name) : ""} · started ${esc(fmtTime(r.created_utc))}${r.finished_utc ? " · took " + esc(fmtDur(secsBetween(r.created_utc, r.finished_utc))) : ""}</div>`;
   const runs = await api("/api/runs").catch(() => []);
-  $("#run-head").insertAdjacentHTML("beforeend", `<label class="muted" style="display:inline-flex;gap:6px;align-items:center">Compare with
+  if (currentRun !== id) return;  // another run was chosen while this one loaded
+  $("#compare-slot").innerHTML = (`<label class="muted" style="display:inline-flex;gap:6px;align-items:center">Compare with
     <select id="compare-pick" style="width:auto"><option value="">—</option>${runs.filter((x) => x.run_id !== id).map((x) => `<option value="${esc(x.run_id)}" ${x.run_id === compareWith ? "selected" : ""}>${esc(x.name)} · ${esc(fmtTime(x.created_utc))}</option>`).join("")}</select></label>`);
   if (compareWith) return showCompare(compareWith, id);
   $("#grid").innerHTML = gridHtml(stageCols, r.cells, true) + legendHtml(false);
@@ -861,7 +863,7 @@ $("#grid").addEventListener("click", (e) => {
   const settings = Object.entries(x.settings_differ || {}).map(([k, [va, vb]]) => `<tr><td>${esc(k)}</td><td class="v">${esc(JSON.stringify(va))} → ${esc(JSON.stringify(vb))}</td></tr>`).join("");
   $("#receipt").innerHTML = `<div class="card"><h3>${esc(c.dataset.cmpCol)} · ${esc(c.dataset.cmpItem)}</h3>
     <p>${x.same ? "The two runs made byte-identical outputs here." : x.same === false ? "The outputs differ." : "Only one run has this stage for this item."}
-      ${x.a?.value != null || x.b?.value != null ? `<b>${esc(String(x.a?.value ?? "–"))}${unit}</b> → <b>${esc(String(x.b?.value ?? "–"))}${unit}</b>.` : ""}</p>
+      ${x.a?.value != null || x.b?.value != null ? `<b>${esc(String(x.a?.value ?? "–"))} → ${esc(String(x.b?.value ?? "–"))}</b>${unit}.` : ""}</p>
     <h4>Why</h4><ul>
       ${settings ? `<li>Settings that differ:<table class="kv">${settings}</table></li>` : "<li>Same settings.</li>"}
       ${(x.inputs_differ || []).length ? `<li>Inputs that differ (made differently upstream): ${esc(x.inputs_differ.join(", "))}</li>` : "<li>Same inputs.</li>"}
