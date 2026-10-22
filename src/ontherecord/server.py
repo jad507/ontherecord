@@ -428,7 +428,24 @@ def create_app(cfg: MachineConfig, dispatch: bool = True) -> FastAPI:
     return app
 
 
-def serve(cfg: MachineConfig, host: str = "127.0.0.1", port: int = 8765) -> None:
+def serve(cfg: MachineConfig, host: str = "127.0.0.1", port: int = 8765, open_browser: bool = False) -> None:
+    import socket
+    import urllib.request
+    import webbrowser
     import uvicorn
-    print(f"On the Record: http://{host}:{port}   (workspace {cfg.workspace})")
+    url = f"http://127.0.0.1:{port}/"
+    try:  # already running (a second double-click on the shortcut): just show it
+        urllib.request.urlopen(url + "api/machine", timeout=2)
+        print(f"On the Record is already running: {url}")
+        if open_browser:
+            webbrowser.open(url)
+        return
+    except OSError:
+        pass
+    if host not in ("127.0.0.1", "localhost", "::1"):
+        print(f"WARNING: listening on {host}. Anyone who can reach this address can start jobs on this machine and "
+              "read its recordings. Use this only inside a container or a private network.")
+    print(f"On the Record: {url}   (workspace {cfg.workspace})   Close this window to stop it.")
+    if open_browser:
+        threading.Timer(1.5, lambda: webbrowser.open(url)).start()
     uvicorn.run(create_app(cfg), host=host, port=port, log_level="warning")

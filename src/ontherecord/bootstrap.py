@@ -303,3 +303,67 @@ def save_token(cfg_dir: Path, token: str) -> Path:
     if os.name != "nt":
         p.chmod(0o600)
     return p
+
+
+# ---------------------------------------------------------------------------------------------- the desktop
+def make_shortcut(exe: Path, icons: Path, os_name: str) -> str:
+    """A desktop (and, where there is one, applications menu) entry that starts the GUI and opens it."""
+    desktop = Path.home() / "Desktop"
+    desktop.mkdir(exist_ok=True)
+    if os_name == "windows":
+        lnk = desktop / "On the Record.lnk"
+        ps = (f"$s = (New-Object -ComObject WScript.Shell).CreateShortcut('{lnk}'); "
+              f"$s.TargetPath = '{exe}'; $s.Arguments = 'serve --open'; $s.WorkingDirectory = '{exe.parent}'; "
+              f"$s.IconLocation = '{icons / 'ontherecord.ico'}'; $s.Description = 'On the Record'; $s.Save()")
+        subprocess.run(["powershell", "-NoProfile", "-Command", ps], check=True)
+        return str(lnk)
+    if os_name == "macos":
+        cmd = desktop / "On the Record.command"
+        cmd.write_text(f'#!/bin/bash\n"{exe}" serve --open\n', encoding="utf-8")
+        cmd.chmod(0o755)
+        return str(cmd)
+    entry = (f"[Desktop Entry]\nType=Application\nName=On the Record\nComment=Transcripts with receipts\n"
+             f"Exec=\"{exe}\" serve --open\nIcon={icons / 'ontherecord.png'}\nTerminal=true\n"
+             "Categories=AudioVideo;Office;\n")
+    apps = Path.home() / ".local" / "share" / "applications"
+    apps.mkdir(parents=True, exist_ok=True)
+    for d in (apps, desktop):
+        f = d / "ontherecord.desktop"
+        f.write_text(entry, encoding="utf-8")
+        f.chmod(0o755)
+    subprocess.run(["gio", "set", str(desktop / "ontherecord.desktop"), "metadata::trusted", "true"],
+                   capture_output=True)
+    return str(desktop / "ontherecord.desktop")
+
+
+def interactive_models(models_root: Path, choice: dict, cfg_dir: Path, python: str, ask=input, log=print) -> None:
+    """Offer this machine's models, with sizes; ask for a Hugging Face token for the gated one."""
+    want = [choice["assistant"], choice["extraction"], "whisper-large-v3", "pyannote-community-1"]
+    status = model_status(models_root)
+    todo = [n for n in dict.fromkeys(want) if status.get(n) is not True]
+    if not todo:
+        log("All the models this machine needs are here.")
+        return
+    gb = sum(MODELS[n]["bytes"] for n in todo) / 1e9
+    log("\nModels to download:\n" + "\n".join(f"  {n:21} {MODELS[n]['bytes'] / 1e9:5.1f} GB  {MODELS[n]['about']}"
+                                               for n in todo))
+    if ask(f"Download them now (about {gb:.0f} GB)? [Y/n] ").strip().lower() not in ("", "y", "yes"):
+        log("Skipped. Later: `ontherecord models get NAME`.")
+        return
+    token = os.environ.get("HF_TOKEN")
+    if "pyannote-community-1" in todo and not token:
+        log("\nThe speaker model (pyannote) needs a free Hugging Face account:\n"
+            "  1. Sign in at https://huggingface.co and accept the terms at\n"
+            "     https://huggingface.co/pyannote/speaker-diarization-community-1\n"
+            "  2. Make a token (Read access) at https://huggingface.co/settings/tokens and paste it here.")
+        token = ask("Token (or press Enter to skip the speaker model for now): ").strip() or None
+        if token:
+            log(f"Saved in {save_token(cfg_dir, token)} (readable only by you; never written to a receipt).")
+    for n in todo:
+        if MODELS[n].get("gated") and not token:
+            log(f"Skipping {n}: no token.")
+            continue
+        try:
+            log(f"{n}: {get_model(n, models_root, token, python, log=log)}")
+        except Exception as e:  # one failed model should not lose the others
+            log(f"{n} FAILED: {e}")

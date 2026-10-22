@@ -198,7 +198,7 @@ def cmd_receipt(args) -> int:
 
 def cmd_serve(args) -> int:
     from .server import serve
-    serve(config_from(args), port=args.port)
+    serve(config_from(args), host=args.host, port=args.port, open_browser=args.open)
     return 0
 
 
@@ -418,7 +418,16 @@ def cmd_setup(args) -> int:
     print(b.write_config(cfg_path, hw, tools, choice, home))
     for d in ("workspace", "Archive", "models"):
         (home / d).mkdir(parents=True, exist_ok=True)
-    print(f"\nnext: `ontherecord models` lists the models; `ontherecord models get NAME` downloads one.")
+    if not args.install:
+        print(f"\nnext: `ontherecord models` lists the models; `ontherecord models get NAME` downloads one.")
+        return 0
+    from .config import load_config
+    cfg = load_config(cfg_path)
+    b.interactive_models(cfg.models_root or home / "models", choice, cfg_path.parent, cfg.python_for("audio"))
+    exe = Path(sys.executable).parent / ("ontherecord.exe" if os.name == "nt" else "ontherecord")
+    icons = Path(__file__).resolve().parents[2] / "install"
+    print(f"\nShortcut: {b.make_shortcut(exe, icons, hw['os'])}")
+    print("Done. Open On the Record from the shortcut on your desktop.")
     return 0
 
 
@@ -486,6 +495,8 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(fn=cmd_receipt)
     p = sub.add_parser("serve")
     p.add_argument("--port", type=int, default=8765)
+    p.add_argument("--host", default="127.0.0.1", help="only change this inside a container (see docker/)")
+    p.add_argument("--open", action="store_true", help="open the GUI in the browser once it is up")
     p.set_defaults(fn=cmd_serve)
     sub.add_parser("dispatch", help="run the job queue without the GUI").set_defaults(fn=cmd_dispatch)
     p = sub.add_parser("submit", help="queue a recipe as a job")
@@ -527,6 +538,8 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("setup", help="check this machine, fetch ffmpeg and llama-server, write a machine config")
     p.add_argument("--check", action="store_true", help="only report what is there")
     p.add_argument("--config-file", help="where to write the machine config (default: the user config folder)")
+    p.add_argument("--install", action="store_true",
+                   help="also offer the models this machine needs and put a shortcut on the desktop (the installers)")
     p.set_defaults(fn=cmd_setup)
     p = sub.add_parser("models", help="the model catalog; `models get NAME` downloads one")
     p.add_argument("action", nargs="?", choices=["list", "get"], default="list")
