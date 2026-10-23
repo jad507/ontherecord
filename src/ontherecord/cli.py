@@ -6,6 +6,7 @@
     ontherecord run   RECIPE               run it here and now, in the foreground (Ctrl+C cancels cleanly)
     ontherecord show  [RUN_ID]             a run's grid of items x stages, with check results
     ontherecord receipt RUN_ID ITEM STAGE  the full receipt behind one cell
+    ontherecord transcribe FILE|LINK...    queue speaker-labelled transcripts, set for this machine (no recipe needed)
 
   The job queue (the same one the GUI uses; one job at a time per workspace):
     ontherecord submit RECIPE [--wait]     queue a run; prints its run id
@@ -236,6 +237,30 @@ def cmd_submit(args) -> int:
     return _wait(q, run_id, args.json) if args.wait else 0
 
 
+def cmd_transcribe(args) -> int:
+    """Queue the ready-made transcript recipe (presets.py) for links and files, with this machine's settings."""
+    from . import presets
+    from .jobs import JobQueue
+    cfg = config_from(args)
+    missing = presets.missing_models(cfg, args.comments)
+    if missing:
+        print(f"first download {', '.join(missing)}: `ontherecord models get {' '.join(missing)}` (the speaker model "
+              "needs a Hugging Face token; see INSTALL.md), or use the Setup tab", file=sys.stderr)
+        return 2
+    sources = [s if presets.is_link(s) else str(Path(s).expanduser().resolve()) for s in args.sources]
+    text = presets.transcript_recipe(sources, args.comments, "" if args.detect_language else args.language)
+    if args.show:
+        print(text, end="")
+        return 0
+    q = JobQueue(cfg)
+    run_id = q.submit(text, cfg.workspace / "recipes")
+    _announce(run_id, args)
+    if not q.dispatcher():
+        print("note: nothing is running this workspace's queue, so the job will wait. Start `ontherecord serve` "
+              "(the GUI) or `ontherecord dispatch`.", file=sys.stderr)
+    return _wait(q, run_id, args.json) if args.wait else 0
+
+
 def cmd_exclusive(args) -> int:
     """Queue a command as a job of its own and wait for it: it starts only when nothing else is running, and nothing
     starts beside it. For agents and scripts doing heavy work (an evaluation, a conversion) on a machine that the
@@ -418,11 +443,29 @@ def cmd_setup(args) -> int:
     from .config import user_config_dir
     hw = b.hardware()
     choice = b.fit(hw)
+    acc = b.accel(hw, config_from(args).python_for("audio"))
     gpu = hw["gpu"]
-    print(f"machine   : {hw['os']} {hw['arch']}, {hw['ram_gb']} GB RAM, "
-          + (f"{gpu['name']} ({gpu['memory_gb']} GB)" if gpu else "no GPU found"))
+    print(f"machine   : {hw['os']} {hw['arch']}, {hw['cpus']} processor threads, {hw['ram_gb']} GB RAM, "
+          f"{hw['disk_free_gb']} GB free disk")
+    for g in hw["gpus"] or [None]:
+        print("graphics  : " + (f"{g['name']}" + (f", {g['memory_gb']} GB ({g['free_gb']} GB free now), compute "
+                                                  f"capability {g['compute_cap']}, driver {g['driver']} (CUDA "
+                                                  f"{g['cuda']})" if g["vendor"] == "nvidia" else "")
+                                if g else "no graphics card found"))
+    if gpu and gpu.get("vendor") == "apple":
+        print(f"graphics  : {gpu['name']}")
     print(f"fits      : assistant {choice['assistant']}, comment extraction {choice['extraction']}, "
           f"Whisper {choice['whisper']} ({choice['whisper_compute']})")
+    t = acc["torch"]
+    print(f"PyTorch   : {t['installed'] or 'not in the audio environment'}"
+          + (f" ({t['installed_build']})" if t["installed_build"] else "")
+          + f"; this machine suits {t['want']} ({t['why']})")
+    if not t["ok"]:
+        print(f"            to switch an installer-made environment: `uv sync --extra all --frozen "
+              f"--no-default-groups --group {t['want']}` in {Path(__file__).resolve().parents[2]}")
+    print(f"llama.cpp : {acc['llama']['want']} ({acc['llama']['why']})")
+    if acc["driver"]:
+        print(f"driver    : {acc['driver']['level'].upper()}: {acc['driver']['text']}")
     home = b.home_dir()
     cfg_path = Path(args.config_file) if args.config_file else user_config_dir() / "machine.yaml"
     if args.check:
@@ -471,9 +514,9 @@ def cmd_models(args) -> int:
             print(b.get_model(name, root, token, cfg.python_for("audio")))
         return 0
     status = b.model_status(root)
-    fit = b.fit(b.hardware())
+    want = b.recommended_models(b.fit(b.hardware()))
     for name, m in b.MODELS.items():
-        chosen = name in (fit["assistant"], fit["extraction"]) or m["role"] == "speech"
+        chosen = name in want
         print(f"{'*' if chosen else ' '} {name:21} {m['bytes'] / 1e9:5.1f} GB  "
               f"{(status[name] if isinstance(status[name], str) else 'downloaded' if status[name] else 'not downloaded'):15} {m['about']}")
     print("\n* = what this machine should use. `ontherecord models get NAME [NAME...]` downloads; gated models need "
@@ -518,6 +561,16 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("stage")
     p.add_argument("--full", action="store_true", help="include whole prompt texts")
     p.set_defaults(fn=cmd_receipt)
+    p = sub.add_parser("transcribe", help="queue speaker-labelled transcripts of links or files, with the settings "
+                                          "that suit this machine (no recipe needed)")
+    p.add_argument("sources", nargs="+", help="video or audio links, or files (globs are fine)")
+    p.add_argument("--comments", action="store_true", help="also list the public comments (a large language model)")
+    p.add_argument("--language", default=None, help="language code (default: the transcribe stage's, en)")
+    p.add_argument("--detect-language", action="store_true", help="let Whisper detect the language")
+    p.add_argument("--show", action="store_true", help="print the recipe instead of queueing it")
+    p.add_argument("--wait", action="store_true", help="then follow it until it ends (exit code as for wait)")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(fn=cmd_transcribe)
     p = sub.add_parser("serve")
     p.add_argument("--port", type=int, default=8765)
     p.add_argument("--host", default="127.0.0.1", help="only change this inside a container (see docker/)")

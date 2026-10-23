@@ -6,11 +6,12 @@
     ontherecord models get NAME    download one (the speech models need a Hugging Face token; see below)
 
 Every download is pinned and checked: llama.cpp at build b11249 and the macOS ffmpeg at 9.0.2 against SHA-256
-digests written below, Windows and Linux ffmpeg against the digest GitHub publishes for the file, and each model at
+digests written below (from the GitHub release's published digests), Windows and Linux ffmpeg against the digest GitHub publishes for the file, and each model at
 a fixed Hugging Face revision against the SHA-256 Hugging Face stores for it. A file that does not match is deleted.
 
 The hardware-fit rule is deliberately simple: which model sizes fit in GPU memory (or, on a Mac, in shared memory),
-with the CPU as the fallback. The choice is written to the machine config, and every receipt records the model.
+with the CPU as the fallback. Which builds of PyTorch and llama.cpp suit the card and its driver is hwdetect.py's
+job. The choice is written to the machine config, and every receipt records the model.
 """
 from __future__ import annotations
 
@@ -29,15 +30,43 @@ from pathlib import Path
 LLAMA_BUILD = "b11249"
 LLAMA_ASSETS = {  # name: (sha256, bytes), from the GitHub release's published digests
     "cudart-llama-b11249-bin-ubuntu-cuda-12.8-x64.tar.gz": ("5d2b081d228c91bc7d357ffff1db378080ed11d7bbb1be4d37171d26565a6048", 594377587),
+    "cudart-llama-b11249-bin-ubuntu-cuda-13.4-arm64.tar.gz": ("a21f3501928c40470c005a5de189c8b605025fc16c17d03009b2e9a242ef6128", 552521394),
+    "cudart-llama-b11249-bin-ubuntu-cuda-13.4-x64.tar.gz": ("fbfbfdee790d4c4ed0e9c34f356133437999dc424553f4d5953997f9eccced34", 440236548),
     "cudart-llama-bin-win-cuda-12.4-x64.zip": ("8c79a9b226de4b3cacfd1f83d24f962d0773be79f1e7b75c6af4ded7e32ae1d6", 391443627),
+    "cudart-llama-bin-win-cuda-13.4-arm64.zip": ("642dcde8805b3e3165ca710a5443b3b4044b27d96bd3ee3132473988c9bcb774", 153262407),
+    "cudart-llama-bin-win-cuda-13.4-x64.zip": ("738f8c251ac22b70c3ae6f83a10cf222725df0395246a2cf58f32bdb85fbe668", 423535356),
     "llama-b11249-bin-macos-arm64.tar.gz": ("d5fb90058f8d0c73c1e687b406dc1a6f53c64de725d3e642ae210db90c0b6613", 11763877),
     "llama-b11249-bin-macos-x64.tar.gz": ("8f446f75e176b25580faeba7f7d78dc624a7b5360a931655f2d0eb1befad5096", 11316747),
+    "llama-b11249-bin-ubuntu-arm64.tar.gz": ("2024b392c2c71e937119a317ad47e215cc84483cf11bc90c814361612daba7a4", 13498718),
     "llama-b11249-bin-ubuntu-cuda-12.8-x64.tar.gz": ("a550c6157cc587d7c5845669d66f3f57b856c6fd4987fa706393d0d9f7e0b66b", 172238409),
+    "llama-b11249-bin-ubuntu-cuda-13.4-arm64.tar.gz": ("23df87fb9005d16cede661a59709a76ad5be8b0edec85b1e347472f3ece7d250", 148173189),
+    "llama-b11249-bin-ubuntu-cuda-13.4-x64.tar.gz": ("0ccab79ff4df798436f863368bdd70517d4769469cc437a2513dd630d4cd8c7c", 152874240),
+    "llama-b11249-bin-ubuntu-vulkan-arm64.tar.gz": ("cf037d16d9952afafbbd883b118e7e7e476b25814a0de32a4002b743853edc96", 24656947),
     "llama-b11249-bin-ubuntu-vulkan-x64.tar.gz": ("f8d39878bcc9144b3bda8cbd75d8703b1d6466ab9b8f25e14840c746960b75c8", 31348947),
     "llama-b11249-bin-ubuntu-x64.tar.gz": ("d1aad0580a1f48cb55a9e8f7de0d6eed5e6415acfce65b677023f1fcd5c06083", 17405122),
+    "llama-b11249-bin-win-cpu-arm64.zip": ("fe371ccdf7ba441de9c7dcf349de0c79056a55bfc3a7a07bd6820ed07dfd481f", 12051575),
     "llama-b11249-bin-win-cpu-x64.zip": ("ba0beb2076250970c113b90c0e60611909bc1e7e973ee92a416756a64dd0763c", 19163703),
     "llama-b11249-bin-win-cuda-12.4-x64.zip": ("500ea1076423d729b9537083b045c6f2dbeedb97f3bb02661022c75251e5c3c3", 264527344),
+    "llama-b11249-bin-win-cuda-13.4-arm64.zip": ("0a7d2c171c18bf52da5a05e4fb51111db7367071557b5a81a2b7770b69ab7717", 145788945),
+    "llama-b11249-bin-win-cuda-13.4-x64.zip": ("6128f9d4ed2cec0a6ab07b7368b57949b90b7d4882624be72736479bb3912b38", 153544476),
     "llama-b11249-bin-win-vulkan-x64.zip": ("32cf3b0e3477263c959ae17a08882f9b1e091c4d6d93ccc0631efd2185f5f87d", 33077226),
+}
+# hwdetect.llama_build names a build; these are its archives (the CUDA builds' runtime libraries come separately)
+_B = LLAMA_BUILD
+LLAMA_BUILDS = {
+    "windows": {"cuda-13.4": [f"llama-{_B}-bin-win-cuda-13.4-x64.zip", "cudart-llama-bin-win-cuda-13.4-x64.zip"],
+                "cuda-13.4-arm64": [f"llama-{_B}-bin-win-cuda-13.4-arm64.zip", "cudart-llama-bin-win-cuda-13.4-arm64.zip"],
+                "cuda-12": [f"llama-{_B}-bin-win-cuda-12.4-x64.zip", "cudart-llama-bin-win-cuda-12.4-x64.zip"],
+                "vulkan": [f"llama-{_B}-bin-win-vulkan-x64.zip"], "cpu": [f"llama-{_B}-bin-win-cpu-x64.zip"],
+                "cpu-arm64": [f"llama-{_B}-bin-win-cpu-arm64.zip"]},
+    "linux": {"cuda-13.4": [f"llama-{_B}-bin-ubuntu-cuda-13.4-x64.tar.gz", f"cudart-llama-{_B}-bin-ubuntu-cuda-13.4-x64.tar.gz"],
+              "cuda-13.4-arm64": [f"llama-{_B}-bin-ubuntu-cuda-13.4-arm64.tar.gz",
+                                  f"cudart-llama-{_B}-bin-ubuntu-cuda-13.4-arm64.tar.gz"],
+              "cuda-12": [f"llama-{_B}-bin-ubuntu-cuda-12.8-x64.tar.gz", f"cudart-llama-{_B}-bin-ubuntu-cuda-12.8-x64.tar.gz"],
+              "vulkan": [f"llama-{_B}-bin-ubuntu-vulkan-x64.tar.gz"],
+              "vulkan-arm64": [f"llama-{_B}-bin-ubuntu-vulkan-arm64.tar.gz"],
+              "cpu": [f"llama-{_B}-bin-ubuntu-x64.tar.gz"], "cpu-arm64": [f"llama-{_B}-bin-ubuntu-arm64.tar.gz"]},
+    "macos": {"macos-arm64": [f"llama-{_B}-bin-macos-arm64.tar.gz"], "macos-x64": [f"llama-{_B}-bin-macos-x64.tar.gz"]},
 }
 MAC_FFMPEG = {  # ffmpeg 9.0.2 from ffmpeg.martin-riedl.de, with the digests it publishes
     ("arm64", "ffmpeg"): ("download/macos/arm64/1789931890_9.0.2/ffmpeg.zip", "c8ed4c4e6978a03c485edbfe4e0a5dc2380f8a30bba5150531b31b094492d924"),
@@ -67,6 +96,12 @@ MODELS = {
     "whisper-large-v3": {"kind": "hf", "repo": "Systran/faster-whisper-large-v3",
                          "rev": "edaa852ec7e145841d8ffdb056a99866b5f0a478", "bytes": 3_100_000_000,
                          "role": "speech", "needs_gb": 6, "about": "Whisper large-v3 for faster-whisper (transcription)"},
+    # faster-whisper's name for it; Hugging Face redirects the repo to dropbox-dash/faster-whisper-large-v3-turbo
+    "whisper-large-v3-turbo": {"kind": "hf", "repo": "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
+                               "rev": "0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf", "bytes": 1_622_000_000,
+                               "role": "speech", "needs_gb": 2,
+                               "about": "Whisper large-v3-turbo: several times faster, a little less accurate "
+                                        "(transcription without an NVIDIA card)"},
     "pyannote-community-1": {"kind": "hf", "repo": "pyannote/speaker-diarization-community-1",
                              "rev": "3533c8cf8e369892e6b79ff1bf80f7b0286a54ee", "bytes": 40_000_000, "gated": True,
                              "role": "speech", "needs_gb": 2,
@@ -88,29 +123,55 @@ def home_dir() -> Path:
 
 
 def hardware() -> dict:
+    """This machine: system, memory, processors, free disk where On the Record keeps its things, and every graphics
+    card (`gpu` is the one the models use: the NVIDIA card with the most memory, or the Apple GPU)."""
     import psutil
-    hw = {"os": {"win32": "windows", "darwin": "macos"}.get(sys.platform, "linux"), "arch": platform.machine().lower(),
-          "ram_gb": round(psutil.virtual_memory().total / 1e9), "gpu": None}
-    smi = shutil.which("nvidia-smi")
-    if smi:
-        try:
-            out = subprocess.run([smi, "--query-gpu=name,memory.total,driver_version", "--format=csv,noheader,nounits"],
-                                 capture_output=True, text=True, timeout=20).stdout.strip().splitlines()
-            if out:
-                name, mem, drv = [x.strip() for x in out[0].split(",")]
-                hw["gpu"] = {"vendor": "nvidia", "name": name, "memory_gb": round(int(mem) / 1024), "driver": drv}
-        except (OSError, subprocess.TimeoutExpired, ValueError):
-            pass
-    if hw["os"] == "macos" and hw["arch"] in ("arm64", "aarch64"):
+    from . import hwdetect as hd
+    hw = {"os": hd.os_name(), "arch": hd.arch(), "ram_gb": round(psutil.virtual_memory().total / 1e9),
+          "cpus": os.cpu_count(), "gpus": hd.nvidia_gpus() + hd.other_gpus(), "gpu": None,
+          "wsl": "microsoft" in platform.release().lower()}
+    hw["gpu"] = hd.best_nvidia(hw["gpus"])
+    if hw["os"] == "macos" and hw["arch"] == "arm64":
         hw["gpu"] = {"vendor": "apple", "name": "Apple GPU (shared memory)", "memory_gb": int(hw["ram_gb"] * 0.7)}
+    home = home_dir()
+    hw["disk_free_gb"] = round(shutil.disk_usage(home if home.exists() else Path.home()).free / 1e9)
     return hw
+
+
+def accel(hw: dict, python: str | None = None) -> dict:
+    """Which builds of PyTorch and llama.cpp suit this machine, what to do about the driver, and the PyTorch installed
+    in `python` (the one that runs the audio stages; by default this one). Its version names the build: 2.11.0+cu128."""
+    from . import hwdetect as hd
+    flavor, flavor_why = hd.torch_flavor(hw["os"], hw["gpus"])
+    builds, builds_why = hd.llama_build(hw["os"], hw["arch"], hw["gpus"])
+    out = hd._run([python or sys.executable, "-c", "import importlib.metadata as m\ntry: print(m.version('torch'))\n"
+                   "except Exception: pass"], timeout=60)
+    torch = (out or "").strip() or None
+    # 2.11.0+cu128 names its build; a bare 2.11.0 is PyPI's: CUDA 13 on Linux, the processor only on Windows
+    have = (torch.split("+", 1)[1] if torch and "+" in torch else
+            {"linux": "cu130 (PyPI)", "windows": "cpu (PyPI)"}.get(hw["os"], flavor) if torch else None)
+    ok = have is None or have == flavor or hw["os"] == "macos"
+    return {"torch": {"want": flavor, "why": flavor_why, "installed": torch, "installed_build": have, "ok": ok},
+            "llama": {"want": builds[0], "why": builds_why, "chain": builds},
+            "driver": hd.driver_advice(hw["os"], hw["gpus"])}
 
 
 def fit(hw: dict) -> dict:
     """Which model for each job, and where the assistant runs, given this machine."""
-    gpu_gb = (hw["gpu"] or {}).get("memory_gb", 0)
+    from .hwdetect import _ver
+    g = hw["gpu"] or {}
+    gpu_gb = g.get("memory_gb", 0)
     big = gpu_gb >= 16 or hw["ram_gb"] >= 32
-    apple = (hw["gpu"] or {}).get("vendor") == "apple"
+    apple = g.get("vendor") == "apple"
+    cc = _ver(g.get("compute_cap")) or (0, 0)
+    # Whisper runs on CTranslate2: an NVIDIA card or the processor (it has no Apple GPU backend). large-v3 needs
+    # about 4.5 GB in float16 and half that in int8; float16 needs compute capability 7.0. On the processor,
+    # large-v3-turbo is several times faster for a little accuracy.
+    if g.get("vendor") == "nvidia" and gpu_gb >= 4:
+        whisper = "large-v3"
+        compute = ("float16" if gpu_gb >= 6 else "int8_float16") if cc >= (7, 0) else "int8"
+    else:
+        whisper, compute = "large-v3-turbo", "int8"
     return {
         # Nothing runs beside the assistant, so it gets the whole card: E2B for a 4 GB laptop card, E4B from 6 GB.
         # With no card (or a smaller one) it runs on the processor, where the smaller E2B answers about twice as fast.
@@ -120,9 +181,15 @@ def fit(hw: dict) -> dict:
         "extraction_offload": ("-ngl 999 --n-cpu-moe 8; -ngl 999 --n-cpu-moe 14; -ngl 999 --n-cpu-moe 22"
                                if gpu_gb >= 16 else "-ngl 999" if (hw["gpu"] or {}).get("vendor") == "apple"
                                else "-ngl 0"),
-        "whisper": "large-v3" if gpu_gb >= 6 else "large-v3-turbo",
-        "whisper_compute": "float16" if (hw["gpu"] or {}).get("vendor") == "nvidia" else "int8",
+        "whisper": whisper,
+        "whisper_compute": compute,
     }
+
+
+def recommended_models(choice: dict) -> list[str]:
+    """The catalog entries a machine with this fit should have."""
+    return list(dict.fromkeys([choice["assistant"], choice["extraction"], f"whisper-{choice['whisper']}",
+                               "pyannote-community-1"]))
 
 
 # ---------------------------------------------------------------------------------------------- downloads
@@ -174,40 +241,59 @@ def _extract(archive: Path, into: Path) -> None:
                 p.chmod(p.stat().st_mode | 0o111)
 
 
-def llama_assets(hw: dict) -> list[str]:
-    nvidia = (hw["gpu"] or {}).get("vendor") == "nvidia"
-    if hw["os"] == "windows":
-        return ([f"llama-{LLAMA_BUILD}-bin-win-cuda-12.4-x64.zip", "cudart-llama-bin-win-cuda-12.4-x64.zip"]
-                if nvidia else [f"llama-{LLAMA_BUILD}-bin-win-vulkan-x64.zip"])
-    if hw["os"] == "macos":
-        return [f"llama-{LLAMA_BUILD}-bin-macos-{'arm64' if hw['arch'] in ('arm64', 'aarch64') else 'x64'}.tar.gz"]
-    return ([f"llama-{LLAMA_BUILD}-bin-ubuntu-cuda-12.8-x64.tar.gz",
-             f"cudart-llama-{LLAMA_BUILD}-bin-ubuntu-cuda-12.8-x64.tar.gz"] if nvidia
-            else [f"llama-{LLAMA_BUILD}-bin-ubuntu-vulkan-x64.tar.gz"])
+def llama_devices(server: Path) -> str | None:
+    """What a llama-server build can run on (`--list-devices`), or None when it does not start."""
+    try:
+        r = subprocess.run([str(server), "--list-devices"], capture_output=True, text=True, timeout=120,
+                           encoding="utf-8", errors="replace")
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return r.stdout + r.stderr if r.returncode == 0 else None
 
 
-def ensure_llama(bin_dir: Path, hw: dict, log=print, assets: list[str] | None = None) -> Path:
+def _sees_card(build: str, devices: str) -> bool:
+    if build.startswith("cuda"):
+        return "CUDA0" in devices
+    if build.startswith("vulkan"):
+        return "Vulkan0" in devices
+    return True  # the processor builds, and Metal (which lists itself only on Apple silicon)
+
+
+def ensure_llama(bin_dir: Path, hw: dict, log=print, builds: list[str] | None = None, verify: bool = True) -> Path:
+    """llama-server: the first build in the list (default: hwdetect's choice for this machine, best first) that
+    starts and sees the graphics card. Each build gets its own folder, so the path names the build."""
     exe = "llama-server.exe" if hw["os"] == "windows" else "llama-server"
-    target = bin_dir / f"llama-{LLAMA_BUILD}"
-    found = list(target.rglob(exe)) if target.is_dir() else []
-    if found:
-        return found[0]
-    for name in assets or llama_assets(hw):
-        sha, size = LLAMA_ASSETS[name]
-        url = f"https://github.com/ggml-org/llama.cpp/releases/download/{LLAMA_BUILD}/{name}"
-        log(f"llama.cpp {LLAMA_BUILD}: {name} ({size / 1e6:.0f} MB)")
-        arc = download(url, bin_dir / "downloads" / name, sha, size, log=log)
-        _extract(arc, target)
-        arc.unlink()
-    found = list(target.rglob(exe))
-    if not found:
-        raise RuntimeError(f"no {exe} in the llama.cpp download")
-    # the CUDA runtime libraries ship in a separate archive; put them beside the server
-    for lib in target.rglob("*"):
-        if lib.is_file() and lib.parent != found[0].parent and lib.suffix in (".dll", ".so") or ".so." in lib.name:
-            if lib.is_file() and not (found[0].parent / lib.name).exists():
-                shutil.copy2(lib, found[0].parent / lib.name)
-    return found[0]
+    if builds is None:
+        from .hwdetect import llama_build
+        builds = llama_build(hw["os"], hw["arch"], hw.get("gpus") or [])[0]
+    for i, build in enumerate(builds):
+        target = bin_dir / f"llama-{LLAMA_BUILD}-{build}"
+        found = list(target.rglob(exe)) if target.is_dir() else []
+        if not found:
+            for name in LLAMA_BUILDS[hw["os"]][build]:
+                sha, size = LLAMA_ASSETS[name]
+                url = f"https://github.com/ggml-org/llama.cpp/releases/download/{LLAMA_BUILD}/{name}"
+                log(f"llama.cpp {LLAMA_BUILD}: {name} ({size / 1e6:.0f} MB)")
+                arc = download(url, bin_dir / "downloads" / name, sha, size, log=log)
+                _extract(arc, target)
+                arc.unlink()
+            found = list(target.rglob(exe))
+            if not found:
+                raise RuntimeError(f"no {exe} in the llama.cpp download")
+            # the CUDA runtime libraries ship in a separate archive; put them beside the server
+            for lib in target.rglob("*"):
+                if (lib.is_file() and lib.parent != found[0].parent
+                        and (lib.suffix in (".dll", ".so") or ".so." in lib.name)
+                        and not (found[0].parent / lib.name).exists()):
+                    shutil.copy2(lib, found[0].parent / lib.name)
+        if not verify or i == len(builds) - 1:
+            return found[0]
+        devices = llama_devices(found[0])
+        if devices is not None and _sees_card(build, devices):
+            return found[0]
+        log(f"llama.cpp's {build} build " + ("does not start here" if devices is None else "does not see the card")
+            + f"; trying {builds[i + 1]}")
+    raise RuntimeError("no llama.cpp build to try")
 
 
 def ensure_ffmpeg(bin_dir: Path, hw: dict, log=print) -> dict[str, str]:
@@ -314,6 +400,36 @@ def save_token(secrets_file: Path, token: str) -> Path:
     return p
 
 
+def check_hf_token(token: str, model: str = "pyannote-community-1") -> dict:
+    """Ask Hugging Face whether the token works and whether it may read the gated speaker model. This talks to the
+    network, so it runs only when a person asks (the Setup tab's Check button). The token goes to Hugging Face only."""
+    import urllib.error
+    m = MODELS[model]
+    page = f"https://huggingface.co/{m['repo']}"
+
+    def ask(url: str, method: str = "GET"):
+        req = urllib.request.Request(url, method=method, headers={"Authorization": f"Bearer {token}",
+                                                                  "User-Agent": "ontherecord-setup"})
+        return urllib.request.urlopen(req, timeout=20)
+    try:
+        user = json.loads(ask("https://huggingface.co/api/whoami-v2").read()).get("name")
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            return {"token": False, "access": False, "message": "Hugging Face does not accept this token. Make a "
+                    "new one with Read access at https://huggingface.co/settings/tokens and paste it again."}
+        raise
+    try:
+        ask(f"{page}/resolve/{m['rev']}/config.yaml", "HEAD")
+    except urllib.error.HTTPError as e:
+        if e.code not in (401, 403):
+            raise
+        return {"token": True, "access": False, "user": user, "page": page,
+                "message": f"The token works (signed in as {user}), but this account has not accepted the speaker "
+                           f"model's terms yet. Open {page}, sign in as {user}, accept, then check again."}
+    return {"token": True, "access": True, "user": user, "page": page,
+            "message": f"The token works (signed in as {user}) and may download the speaker model."}
+
+
 # ---------------------------------------------------------------------------------------------- the desktop
 def make_shortcut(exe: Path, icons: Path, os_name: str) -> str:
     """A desktop (and, where there is one, applications menu) entry that starts the GUI and opens it."""
@@ -348,9 +464,8 @@ def make_shortcut(exe: Path, icons: Path, os_name: str) -> str:
 def interactive_models(models_root: Path, choice: dict, secrets_file: Path, python: str, ask=input,
                        log=print) -> None:
     """Offer this machine's models, with sizes; ask for a Hugging Face token for the gated one."""
-    want = [choice["assistant"], choice["extraction"], "whisper-large-v3", "pyannote-community-1"]
     status = model_status(models_root)
-    todo = [n for n in dict.fromkeys(want) if status.get(n) is not True]
+    todo = [n for n in recommended_models(choice) if status.get(n) is not True]
     if not todo:
         log("All the models this machine needs are here.")
         return

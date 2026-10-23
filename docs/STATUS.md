@@ -18,9 +18,53 @@ Added since the plan, at Jeff's request: Library and player, Import from cameras
 catalog, clearing the card), the Ask assistant with confirm buttons, the MCP server, the Setup tab and model
 catalog, installers (uv) and a Docker image, and one-job-at-a-time with `ontherecord exclusive`.
 
+## October 23: first run, machine detection, picking up where you left off
+
+Jeff asked for an easier first run (driver, token, first file), detection of the card, memory and system with
+defaults to match, CUDA builds above 12.4/12.8 where the machine allows, and a better return to the program.
+
+- **Detection** (`hwdetect.py`, standard library only, so the installers run it first): every NVIDIA card's memory,
+  free memory, compute capability and driver, the newest CUDA the driver supports (both banner styles,
+  `CUDA Version` and since the 610 drivers `CUDA UMD Version`), AMD and Intel graphics, WSL.
+- **PyTorch build per machine**: dependency groups `cu128` (default, as before), `cu126`, `cpu`, chosen by the
+  installers. Found while doing this: PyTorch 2.11's cu128 wheels have no kernels below compute capability 7.5
+  (`.ci/manywheel/build_cuda.sh` at v2.11.0), so a GTX 10-series card got no GPU at all before; cu126 still has
+  Maxwell to Hopper. CPU-only machines no longer download about 3 GB of CUDA libraries.
+- **Not PyTorch's CUDA 13**: CTranslate2 4.8.3 (the newest) loads `libcublas.so.12`, and `nvidia-cudnn-cu12` and
+  `-cu13` both install `nvidia/cudnn/lib/libcudnn.so.9`. CUDA 12 builds run on CUDA 13 drivers. Revisit when
+  CTranslate2 ships CUDA 13 wheels, or with a torch upgrade (2.12 to 2.14 exist, with cu132).
+- **llama.cpp goes higher**: its CUDA 13.4 builds (Windows and Linux, x64 and arm64; Windows was on CUDA 12.4) when
+  the driver supports 13.4 and the card is Turing or newer, else CUDA 12, else Vulkan, else the CPU build. Each
+  build is checked with `llama-server --list-devices` and setup falls down the list if it cannot see the card.
+  Each build has its own folder (`bin/llama-b11249-<build>`). Docker stays on CUDA 12.8 (`--build-arg TORCH=`
+  picks its PyTorch).
+- **Whisper per machine**: large-v3 float16 on NVIDIA cards with 6 GB or more, int8_float16 below that, int8 on
+  cards without fast float16 (compute capability below 7.0); large-v3-turbo int8 on the processor, including Macs
+  (CTranslate2 has no Metal). Turbo is in the catalog, pinned (`mobiuslabsgmbh/faster-whisper-large-v3-turbo`,
+  which Hugging Face redirects to `dropbox-dash/...`; rev `0a363e91...`, 1.6 GB, MIT). The transcribe stage now
+  falls back to a compute type the card supports and to the CPU when CUDA 12's cuBLAS will not load, both recorded,
+  and names turbo's revision correctly.
+- **`ontherecord transcribe FILE|LINK...`** and the GUI's **Transcribe a recording** (Library, and Setup step 5)
+  queue one ready-made recipe (`presets.py`) with this machine's settings written in. The assistant's transcribe
+  tool uses it too (its description is unchanged, so no eval rerun is needed).
+- **Setup is a guide**: five steps with status, opening by itself until the Library has a recording; the driver
+  advice (needed, recommended, optional); what each part runs on; a warning when another program holds the GPU's
+  memory; the installed PyTorch build against the one the card needs; a token **Check** (Hugging Face's whoami and
+  the gated file at the pinned revision; the only setup call that goes online, on a click); where the folders are,
+  with Open buttons.
+- **Picking up where you left off** (per browser): the tab, the recording paused where it stopped, the Ask
+  conversation (a confirm button that was waiting is not brought back), the Build draft, and a banner of jobs that
+  finished or failed since the last visit. The player's **Save** writes .txt, .srt or .vtt.
+- INSTALL.md is now the walkthrough. Projects and folders: a proposal waiting on Jeff,
+  [projects-and-folders.md](projects-and-folders.md).
+- Tested: 74 tests; the GUI headless in Chrome against a scratch workspace and, read-only, the real one (resume to
+  the same second, paused; the banner; an .srt saved). Not tried: the installers with the new groups on a fresh
+  machine (the three groups resolve in `uv sync --dry-run`), the CUDA 13.4 llama.cpp download (about 600 MB),
+  Windows, a GTX 10-series card.
+
 ## Built and tested (shiro, Linux, RTX 5070 Ti)
 
-- 55 tests pass (`pytest`). Commits on `main`, none pushed.
+- 74 tests pass (`pytest`; 55 before Oct 23). Commits on `main`, none pushed.
 - The 11 meetings, three ways (left channel, averaged, as coded in May), each compared with hands_on_dl's files:
   see researchathon-notes.md.
 - WhiStress inside On the Record gives the poster's marks on every item (StressTest 218/218, StressPresso
@@ -56,6 +100,8 @@ catalog, installers (uv) and a Docker image, and one-job-at-a-time with `onthere
    of the 142 revisions of `unsloth/gemma-4-26B-A4B-it-GGUF`, whose MXFP4_MOE file changed six times between April
    and July. The catalog still pins Unsloth's July file (16.55 GB), so a fresh install gets a different model than
    the paper used. Open question for Jeff: pin noctrex's file instead?
+3. **Projects and folders**: labels in one workspace (recommended) or a workspace per project, automatic
+   transcript folders, speaker names. See [projects-and-folders.md](projects-and-folders.md).
 
 ## Next, in order
 
@@ -75,7 +121,9 @@ catalog, installers (uv) and a Docker image, and one-job-at-a-time with `onthere
 
 - Stop the GUI with `kill <serve pid>`. TaskStop kills the whole process tree. Jobs survive either way now, but the
   assistant's llama-server would not be stopped cleanly.
-- shiro's system CUDA hides library-path bugs. Test installs in Docker or a fresh machine.
+- shiro's system CUDA hides library-path bugs. Test installs in Docker or a fresh machine. Example, found Oct 23:
+  hands_on_dl's `.venv-audio` has PyPI's `torch 2.11.0`, which on Linux is the CUDA 13 build; faster-whisper works
+  there only because the system CUDA 12 supplies `libcublas.so.12`. `ontherecord setup --check` now says so.
 - Stages run offline everywhere now (`config.LOCAL_ONLY`, Oct 22): `HF_HUB_OFFLINE=1`, and pyannote's usage
   metrics off. pyannote 4.0 sends them to otel.pyannote.ai by default (version, session id, audio duration,
   speaker counts), and `HF_HUB_OFFLINE` does not stop it, so shiro's diarization runs before Oct 22 sent them.

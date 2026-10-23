@@ -199,3 +199,20 @@ a.button.small { padding: 2px 8px; font-size: 12px; font-weight: 500; }
 .ask-form { display: flex; gap: 8px; align-items: flex-end; }
 .ask-form textarea { flex: 1; margin: 0; }
 .thinking { color: var(--muted); font-style: italic; }
+
+/* setup: the guided first run */
+.lede { margin: 0 0 12px; font-size: 15px; }
+.step h3 { display: flex; align-items: center; gap: 8px; }
+.stepnum { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%;
+  background: var(--run-bg); color: var(--run); font-size: 12px; flex: none; }
+.step.done .stepnum { background: var(--ok-bg); color: var(--ok); }
+.step ol, .step ul.uses { margin: 4px 0 8px; padding-left: 22px; }
+table.folders td { padding: 6px; }
+[data-tx="pick"] { white-space: nowrap; flex: none; }
+table.folders code { word-break: break-all; }
+/* pick up where you left off */
+.since { border-left: 3px solid var(--accent); background: var(--run-bg); padding: 8px 12px; margin-bottom: 12px; border-radius: 4px;
+  display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.since[hidden] { display: none; }
+.since .grow { flex: 1; }
+.player-tools { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 4px 0; font-size: 12px; }

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from .base import Check, Context, Item, Result, Setting, Stage
@@ -49,13 +50,26 @@ class Transcribe(Stage):
         if dev == "auto":
             try:
                 import ctranslate2
-                dev = "cuda" if ctranslate2.get_cuda_device_count() > 0 else "cpu"
+                dev = "cuda" if ctranslate2.get_cuda_device_count() > 0 and _cublas_loads() else "cpu"
             except Exception:
                 dev = "cpu"
         compute = settings["compute_type"] if dev == "cuda" else "int8"
+        if dev == "cuda":
+            # Cards older than compute capability 7.0 (a GTX 1080) have no fast float16; CTranslate2 refuses it
+            import ctranslate2
+            supported = ctranslate2.get_supported_compute_types("cuda")
+            if compute not in supported:
+                fallback = next(c for c in ("int8_float16", "int8_float32", "float32") if c in supported)
+                ctx.log(f"this card does not support {compute}; using {fallback} (recorded as compute_type_used)")
+                compute = fallback
         ctx.log(f"loading faster-whisper {settings['model']} ({compute}) on {dev}")
         model = WhisperModel(settings["model"], device=dev, compute_type=compute)
-        repo = settings["model"] if "/" in settings["model"] else f"Systran/faster-whisper-{settings['model']}"
+        try:
+            from faster_whisper.utils import _MODELS  # its short names: large-v3-turbo is not a Systran repo
+        except ImportError:
+            _MODELS = {}
+        name = settings["model"]
+        repo = name if "/" in name else _MODELS.get(name, f"Systran/faster-whisper-{name}")
         return {"model": model, "device": dev, "compute": compute, "revision": hf_snapshot(repo)}
 
     def run(self, item: Item, inputs, out: Path, settings: dict, state, ctx: Context) -> Result:
@@ -88,3 +102,14 @@ class Transcribe(Stage):
 
     def teardown(self, state) -> None:
         state.clear()
+
+
+def _cublas_loads() -> bool:
+    """Whether CUDA 12's cuBLAS can be loaded (after torch has put its own on the search path). A machine with an
+    NVIDIA card but PyTorch for the processor has none, and CTranslate2 would fail on the first sentence."""
+    import ctypes
+    try:
+        ctypes.CDLL("cublas64_12.dll" if os.name == "nt" else "libcublas.so.12")
+        return True
+    except OSError:
+        return False

@@ -32,15 +32,45 @@ ontherecord = "ontherecord.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
-# Windows and Linux get PyTorch's CUDA 12.8 builds: PyPI has only CPU builds for Windows, and PyPI's Linux builds need
-# CUDA 13 (a newer NVIDIA driver than many machines have). macOS uses PyPI's builds, which use the Apple GPU.
+# Which PyTorch build, as a dependency group: the installers ask hwdetect.py and pass one with
+# `--no-default-groups --group NAME`; without that, cu128. cu128 has kernels for Turing to Blackwell, cu126 for Maxwell
+# to Hopper (so a GTX 10-series card needs it), cpu is a tenth of the size for machines with no NVIDIA card. PyPI's own
+# builds are out: CPU-only on Windows, and CUDA 13 on Linux, which faster-whisper's CTranslate2 cannot share an
+# environment with (see hwdetect.py). macOS takes PyPI's build in every group; it uses the Apple GPU.
+[dependency-groups]
+cu128 = ["torch==2.11.*", "torchaudio==2.11.*"]
+cu126 = ["torch==2.11.*", "torchaudio==2.11.*"]
+cpu = ["torch==2.11.*", "torchaudio==2.11.*"]
+
+[tool.uv]
+default-groups = ["cu128"]
+conflicts = [[{ group = "cu128" }, { group = "cu126" }, { group = "cpu" }]]
+
 [tool.uv.sources]
-torch = [{ index = "pytorch-cu128", marker = "sys_platform == 'win32' or sys_platform == 'linux'" }]
-torchaudio = [{ index = "pytorch-cu128", marker = "sys_platform == 'win32' or sys_platform == 'linux'" }]
+torch = [
+  { index = "pytorch-cu128", group = "cu128", marker = "sys_platform == 'win32' or sys_platform == 'linux'" },
+  { index = "pytorch-cu126", group = "cu126", marker = "sys_platform == 'win32' or sys_platform == 'linux'" },
+  { index = "pytorch-cpu", group = "cpu", marker = "sys_platform == 'win32' or sys_platform == 'linux'" },
+]
+torchaudio = [
+  { index = "pytorch-cu128", group = "cu128", marker = "sys_platform == 'win32' or sys_platform == 'linux'" },
+  { index = "pytorch-cu126", group = "cu126", marker = "sys_platform == 'win32' or sys_platform == 'linux'" },
+  { index = "pytorch-cpu", group = "cpu", marker = "sys_platform == 'win32' or sys_platform == 'linux'" },
+]
 
 [[tool.uv.index]]
 name = "pytorch-cu128"
 url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
 explicit = true
 
 [tool.setuptools.package-data]

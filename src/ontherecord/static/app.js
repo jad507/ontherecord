@@ -6,6 +6,9 @@ const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 const STATUS_TEXT = { cached: "reused", ran: "ran", run: "will run", "run-if-changed": "maybe", running: "running",
   queued: "queued", pending: "waiting", failed: "failed", blocked: "blocked", cancelled: "cancelled", done: "done" };
 
+// Per-browser conveniences (the last tab, recording and draft); everything works without them.
+const LS = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} },
+  json: (k) => { try { return JSON.parse(localStorage.getItem(k) || "null"); } catch { return null; } } };
 let STAGES = [], PROMPTS = [], DEFS = {};
 let form = { name: "", description: "", urls: "", files: "", stages: [] };
 let currentRun = null, selectedJob = null, runTimer = null, armedCancel = null, compareWith = null, CMP = null;
@@ -41,6 +44,7 @@ function showTab(name) {
   if (name === "import") refreshImport();
   if (name === "ask") { $("#ask-input").focus(); refreshAskBusy(); }
   if (name === "setup") refreshSetup();
+  LS.set("tab", name);
 }
 document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
 
@@ -165,7 +169,7 @@ function toYaml() {
   return lines.join("\n") + "\n";
 }
 
-function updateYaml() { $("#yaml").textContent = toYaml(); }
+function updateYaml() { $("#yaml").textContent = toYaml(); LS.set("draft", JSON.stringify(form)); }
 
 function msg(text, kind = "") { const m = $("#build-msg"); m.textContent = text; m.className = `msg ${kind}`; }
 
@@ -480,7 +484,7 @@ async function refreshLibrary() {
   $("#recordings").innerHTML = LIB.map((r) => `<li data-rec="${esc(r.id)}" class="${playing && playing.item.id === r.id ? "sel" : ""}">
     <div class="t">${esc(r.title)}</div>
     <div class="d">${esc(r.date || "")}${r.duration_s ? " · " + esc(fmtDur(r.duration_s)) : ""} · ${r.views.length} run${r.views.length > 1 ? "s" : ""}</div></li>`).join("")
-    || `<li class="muted">Nothing here yet. Build a run from video links or files, and its recordings appear here.</li>`;
+    || `<li class="muted">Nothing here yet. “Transcribe a recording” above adds one; so does a run from the Build tab.</li>`;
 }
 $("#recordings").addEventListener("click", (e) => {
   const li = e.target.closest("li[data-rec]");
@@ -489,11 +493,12 @@ $("#recordings").addEventListener("click", (e) => {
   if (r) openPlayer(r.default_run, r.id);
 });
 
-async function openPlayer(run, item, t = null) {
-  showTab("library");
+async function openPlayer(run, item, t = null, { switchTab = true, autoplay = true } = {}) {
+  if (switchTab) showTab("library");
   const d = await api(`/api/recording?run=${encodeURIComponent(run)}&item=${encodeURIComponent(item)}`).catch((err) => ({ error: err.message }));
   if (d.error) { $("#player").innerHTML = `<p class="muted">Could not open it: ${esc(d.error)}</p>`; return; }
-  playing = d; lineIdx = -1;
+  playing = d; lineIdx = -1; d.run = run;
+  LS.set("play", JSON.stringify({ run, item, t: t || 0 }));
   history.replaceState(null, "", `#play/${encodeURIComponent(run)}/${encodeURIComponent(item)}`);
   const rec = LIB.find((x) => x.id === item);
   const spk = Object.keys(d.speakers);
@@ -517,15 +522,16 @@ async function openPlayer(run, item, t = null) {
       : `<span class="muted">${d.segments.length ? "No speaker labels in this run." : "No transcript in this run."}</span>`}</div>
     <div class="ptabs"><button class="small" data-ptab="lines">Transcript (${d.segments.length})</button>
       <button class="small secondary" data-ptab="comments">Comments (${d.comments.length})</button>
+      <span class="muted" style="font-size:12px">Save: <a href="#" data-save="txt">.txt</a> · <a href="#" data-save="srt">.srt</a> · <a href="#" data-save="vtt">.vtt</a></span>
       <span class="grow"></span><input id="line-filter" type="search" placeholder="Find in this recording" style="width:200px">
       <label class="muted" style="font-size:12px"><input type="checkbox" id="follow" checked> Follow playback</label></div>
     <div class="lines" id="lines"></div>`;
-  setSource(d.audio ? "audio" : "media", t);
+  setSource(d.audio ? "audio" : "media", t, autoplay);
   renderLines("lines");
   refreshLibrary();
 }
 
-function setSource(kind, t = null) {
+function setSource(kind, t = null, autoplay = true) {
   const d = playing;
   const src = kind === "audio" ? d.audio : d.media;
   if (!src) return;
@@ -534,7 +540,7 @@ function setSource(kind, t = null) {
   const at = t ?? (old ? old.currentTime : 0);
   $("#media-wrap").innerHTML = `<${el} id="media" controls preload="metadata" src="${outputUrl(src)}"></${el}>`;
   const m = $("#media");
-  if (at) m.addEventListener("loadedmetadata", () => { m.currentTime = at; if (t != null) m.play().catch(() => {}); }, { once: true });
+  if (at) m.addEventListener("loadedmetadata", () => { m.currentTime = at; if (t != null && autoplay) m.play().catch(() => {}); }, { once: true });
   m.addEventListener("timeupdate", onTime);
 }
 
@@ -558,6 +564,10 @@ function onTime() {
   if (!m || !d) return;
   const dur = d.duration_s || m.duration || 1;
   $("#head").style.left = `${(100 * m.currentTime / dur).toFixed(3)}%`;
+  if (Math.abs(m.currentTime - (onTime.saved ?? -99)) > 5) {
+    onTime.saved = m.currentTime;
+    LS.set("play", JSON.stringify({ run: d.run, item: d.item.id, t: m.currentTime }));
+  }
   let lo = 0, hi = d.segments.length - 1, idx = -1;
   while (lo <= hi) { const mid = (lo + hi) >> 1; if (d.segments[mid].start <= m.currentTime) { idx = mid; lo = mid + 1; } else hi = mid - 1; }
   if (idx === lineIdx) return;
@@ -568,7 +578,24 @@ function onTime() {
 }
 
 function seek(t) { const m = $("#media"); if (m) { m.currentTime = t; m.play().catch(() => {}); } }
+// The transcript as a plain file: text with times, or subtitles (SubRip, WebVTT) with speakers.
+function saveTranscript(kind) {
+  const d = playing, pad = (n, w = 2) => String(Math.floor(n)).padStart(w, "0");
+  const ts = (s, sep) => `${pad(s / 3600)}:${pad((s % 3600) / 60)}:${pad(s % 60)}${sep}${pad((s % 1) * 1000, 3)}`;
+  const who = (s) => (s.speaker ? `${s.speaker}: ` : "");
+  const text = kind === "txt" ? [d.title, d.date || "", d.url || "", `run ${d.run}`, "", ...d.segments.map((s) => `[${hms(s.start)}] ${who(s)}${s.text}`)].join("\n") + "\n"
+    : kind === "srt" ? d.segments.map((s, i) => `${i + 1}\n${ts(s.start, ",")} --> ${ts(s.end, ",")}\n${who(s)}${s.text}\n`).join("\n")
+    : "WEBVTT\n\n" + d.segments.map((s) => `${ts(s.start, ".")} --> ${ts(s.end, ".")}\n${s.speaker ? `<v ${s.speaker}>` : ""}${s.text}\n`).join("\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
+  a.download = `${(d.title || d.item.id).replace(/[^\w.-]+/g, "_").slice(0, 80)}.${kind}`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+}
+
 $("#player").addEventListener("click", (e) => {
+  const sv = e.target.closest("[data-save]");
+  if (sv) { e.preventDefault(); return saveTranscript(sv.dataset.save); }
   const row = e.target.closest("[data-t]");
   if (row) return seek(+row.dataset.t);
   const tab = e.target.closest("[data-ptab]");
@@ -604,7 +631,6 @@ $("#search-hits").addEventListener("click", (e) => {
 // ---------------------------------------------------------------- import from cameras and drives
 let impSource = null, armedClear = null, MACHINE = {}, impTimer = null;
 const gb = (b) => (b >= 1e9 ? `${(b / 1e9).toFixed(1)} GB` : `${(b / 1e6).toFixed(0)} MB`);
-const LS = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
 const DEFAULT_TEMPLATE = "{project}/{date:%Y}/{date:%Y-%m-%d}_{device}/{date:%Y-%m-%d_%H%M%S}_{device}_{name}";
 
 function impForm() {
@@ -776,11 +802,21 @@ async function ask(text) {
   }
   chatBusy = false;
   $("#ask-send").disabled = false;
+  saveChat();
+}
+function saveChat() { LS.set("chat", JSON.stringify({ history: chatHistory.slice(-40), notes: chatNotes, html: $("#chat").innerHTML.slice(-300000) })); }
+function restoreChat() {
+  const c = LS.json("chat");
+  if (!c || !c.html) return;
+  chatHistory = c.history || []; chatNotes = c.notes || [];
+  $("#chat").innerHTML = c.html;
+  document.querySelectorAll("#chat .thinking").forEach((b) => b.remove());
+  document.querySelectorAll("#chat .pending").forEach((p) => { if (p.querySelector("button")) p.innerHTML = `<span class="muted">This was waiting for a button when you left; ask again if you still want it.</span>`; });
 }
 $("#ask-form").addEventListener("submit", (e) => { e.preventDefault(); const t = $("#ask-input").value; $("#ask-input").value = ""; ask(t); });
 $("#ask-input").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("#ask-form").requestSubmit(); } });
 $("#examples").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) ask(b.textContent); });
-$("#ask-clear").addEventListener("click", (e) => { e.preventDefault(); chatHistory = []; chatNotes = []; $("#chat").innerHTML = ""; });
+$("#ask-clear").addEventListener("click", (e) => { e.preventDefault(); chatHistory = []; chatNotes = []; $("#chat").innerHTML = ""; saveChat(); });
 $("#chat").addEventListener("click", async (e) => {
   const go = e.target.closest("[data-go]"), no = e.target.closest("[data-no]");
   if (no) { no.closest(".pending").innerHTML = `<span class="muted">Not done.</span>`; chatNotes.push("(I chose not to do that.)"); return; }
@@ -791,45 +827,93 @@ $("#chat").addEventListener("click", async (e) => {
   const r = await api("/api/assistant/confirm", { json: { tool: p.tool, args: p.args } }).catch((err) => ({ result: err.message }));
   box.innerHTML = linkify(r.result);
   chatNotes.push(`(I pressed the button. Result: ${r.result})`);
+  saveChat();
 });
 
-// ---------------------------------------------------------------- setup
-let setupTimer = null;
+// ---------------------------------------------------------------- setup: the guided first run
+// Five steps from a fresh install to a first transcript, each with its status. The tab opens by itself until the
+// first recording is in the Library, and its label counts what is left. Only the token's Check button goes online.
+let setupTimer = null, SETUP = null;
+const FOLDERS = {
+  workspace: ["Recordings and results", "Downloads, transcripts, receipts and the job list. On the Record looks after this folder: read it through the Library and Results tabs, and do not change files in it by hand."],
+  archive: ["Archive", "Imports from cameras and cards, filed by project. An external drive is fine."],
+  models: ["Models", "The language models, several GB each. The speech models live in the Hugging Face cache."],
+  settings: ["Settings", "machine.yaml (folders, programs, the assistant's model) and secrets.env (the Hugging Face token)."],
+};
+
+function setupDone(d, libCount) {
+  return [d.accel.driver?.level !== "needed", Object.values(d.tools).every(Boolean),
+    d.models.every((m) => !m.recommended || m.status === true),
+    d.has_token || d.models.some((m) => m.gated && m.status === true), libCount > 0];
+}
+function markSetupTab(done) {
+  const left = done.filter((x) => !x).length;
+  $('nav button[data-tab="setup"]').innerHTML = left ? `Setup <span class="badge b-run">${left} to do</span>` : "Setup";
+}
+
 async function refreshSetup() {
-  const [d, jobs] = await Promise.all([api("/api/setup"), api("/api/jobs").catch(() => [])]);
-  const hw = d.hardware, g = hw.gpu;
+  const [d, jobs, lib] = await Promise.all([api("/api/setup"), api("/api/jobs").catch(() => []), api("/api/library").catch(() => [])]);
+  SETUP = d;
+  const hw = d.hardware, acc = d.accel, f = d.fit, done = setupDone(d, lib.length);
+  markSetupTab(done);
   const dl = jobs.filter((j) => j.name === "download models" && (j.status === "queued" || j.status === "running"));
   const st = (s) => (s === true ? `<span class="badge b-done">downloaded</span>` : s ? `<span class="badge b-failed">${esc(s)}</span>` : `<span class="muted">not downloaded</span>`);
+  const step = (n, title, body) => `<div class="imp-card step ${done[n - 1] ? "done" : ""}"><h3><span class="stepnum">${done[n - 1] ? "✓" : n}</span>${title}</h3>${body}</div>`;
+  const nv = hw.gpus.filter((g) => g.vendor === "nvidia");
+  const cards = hw.gpus.map((g) => g.vendor === "nvidia"
+    ? `<div><b>${esc(g.name)}</b> · ${g.memory_gb} GB · compute capability ${esc(g.compute_cap || "unknown")} · driver ${esc(g.driver)}, which supports CUDA ${esc(g.cuda || "older than 12")}</div>`
+    : `<div><b>${esc(g.name)}</b></div>`).join("")
+    || (hw.gpu?.vendor === "apple" ? `<div><b>${esc(hw.gpu.name)}</b></div>` : `<div>No graphics card found: everything runs on the processor, several times slower.</div>`);
+  const busy = nv.filter((g) => g.memory_gb - g.free_gb > Math.max(2, g.memory_gb / 4)).map((g) =>
+    `<div class="problems warn">Another program is using ${(g.memory_gb - g.free_gb).toFixed(1)} GB of the ${esc(g.name)}'s ${g.memory_gb} GB right now. On the Record cannot see it, so close it before a long job, or the job may run out of memory.</div>`).join("");
+  const onCard = hw.gpu?.vendor === "nvidia" ? "the graphics card" : "the processor";
+  const torchOn = hw.os === "macos" ? "the Apple GPU" : acc.torch.want === "cpu" ? "the processor" : "the graphics card";
+  const drv = acc.driver ? `<div class="${acc.driver.level === "optional" ? "muted" : acc.driver.level === "needed" ? "problems" : "problems warn"}" style="font-size:13px">${acc.driver.level === "optional" ? "Optional: " : ""}${esc(acc.driver.text)}</div>` : "";
+  const torchFix = acc.torch.ok ? "" : `<div class="problems warn">The PyTorch here (${esc(acc.torch.installed)}, ${esc(acc.torch.installed_build)}) is not the build this computer suits (${esc(acc.torch.want)}: ${esc(acc.torch.why)}). Run the installer again, and it installs the right one.</div>`;
+  const tokenOk = d.has_token ? `<span class="badge b-done">saved</span>` : "";
   $("#setup").innerHTML = `
-    <div class="imp-card"><h3>This computer</h3>
-      <div>${esc(hw.os)} ${esc(hw.arch)} · ${hw.ram_gb} GB memory · ${g ? `${esc(g.name)} (${g.memory_gb} GB)` : "no graphics card found: everything runs on the processor, slowly"}</div>
-      <div class="muted">Fits: assistant ${esc(d.fit.assistant)} · comment extraction ${esc(d.fit.extraction)} · Whisper ${esc(d.fit.whisper)}</div>
-      <div class="muted" style="font-size:12px">Recordings: ${esc(d.workspace)} · Archive: ${esc(d.archive)} · Settings: ${esc(d.config_file || "built-in defaults")}</div></div>
-    <div class="imp-card"><h3>Programs</h3>${Object.entries(d.tools).map(([k, v]) => `<div>${v ? "✓" : "✗"} <b>${esc(k)}</b> <span class="muted">${esc(v || "missing: run the installer again, or `ontherecord setup`")}</span></div>`).join("")}</div>
-    <div class="imp-card"><h3>Models</h3>
-      ${table(d.models, [["", (m) => ""], ["model", (m) => m.name], ["size", (m) => `${m.size_gb} GB`], ["for", (m) => m.about], ["", (m) => ""]])}
+    <p class="lede">Five steps take a fresh install to its first transcript. Each turns green when it is done, and everything stays on this computer.</p>
+    ${step(1, "This computer", `
+      <div>${esc({ windows: "Windows", macos: "macOS", linux: "Linux" }[hw.os] || hw.os)}${hw.wsl ? " (WSL)" : ""} · ${hw.cpus} processor threads · ${hw.ram_gb} GB memory · ${hw.disk_free_gb} GB free disk</div>
+      ${cards}${busy}
+      <div class="muted" style="margin-top:6px">What it will use:</div>
+      <ul class="uses"><li>Speech to text: Whisper ${esc(f.whisper)} (${esc(f.whisper_compute)}) on ${onCard}</li>
+        <li>Who speaks when: pyannote on ${torchOn} (PyTorch ${esc(hw.os === "macos" ? "for macOS" : acc.torch.want)})</li>
+        <li>Questions and comment lists: ${esc(f.assistant)} and ${esc(f.extraction)} with llama.cpp (${esc(acc.llama.want)} build)</li></ul>
+      ${drv}${torchFix}`)}
+    ${step(2, "Programs", Object.entries(d.tools).map(([k, v]) => `<div>${v ? "✓" : "✗"} <b>${esc(k)}</b> <span class="muted">${esc(v || "missing: run the installer again, or `ontherecord setup`")}</span></div>`).join(""))}
+    ${step(3, "Models", `<p class="muted" style="margin-top:0">The checked ones suit this computer. Each file is checked against its published fingerprint before it is used.</p>
+      ${table(d.models, [["", (m) => ""], ["model", (m) => m.name], ["size", (m) => gb(m.bytes)], ["for", (m) => m.about], ["", (m) => ""]])}
       ${dl.length ? `<p class="msg ok">Downloading (${esc(dl[0].run_id)})… progress is also on the Jobs tab.</p>` : ""}
-      <div class="btns" style="margin-top:8px"><button id="dl-btn" ${dl.length ? "disabled" : ""}>Download the checked models</button>
-        <span class="muted" style="font-size:12px">Each file is checked against its published fingerprint before it is used.</span></div></div>
-    <div class="imp-card"><h3>Hugging Face token ${d.has_token ? `<span class="badge b-done">saved</span>` : ""}</h3>
-      <p>The speaker model (pyannote) needs a free Hugging Face account. Sign in at <a href="https://huggingface.co" target="_blank" rel="noopener">huggingface.co</a>,
-        accept the terms at <a href="https://huggingface.co/pyannote/speaker-diarization-community-1" target="_blank" rel="noopener">pyannote/speaker-diarization-community-1</a>,
-        then make a token with Read access at <a href="https://huggingface.co/settings/tokens" target="_blank" rel="noopener">huggingface.co/settings/tokens</a> and paste it here.</p>
-      <div class="row" style="display:flex;gap:6px"><input id="hf-token" type="password" placeholder="hf_..." autocomplete="off" style="margin:0"><button id="token-btn" class="secondary">Save token</button></div>
-      <div class="muted" style="font-size:12px">Kept in ${esc(d.secrets_file)}, readable only by you. It is never written into a receipt.</div>
-      <div id="token-msg" class="msg"></div></div>`;
-  // the models table, with a checkbox per row (recommended ones that are missing start checked)
-  const rows = document.querySelectorAll("#setup table.data tr");
+      <div class="btns" style="margin-top:8px"><button id="dl-btn" ${dl.length ? "disabled" : ""}>Download the checked models</button></div>`)}
+    ${step(4, `Hugging Face, for the speaker model ${tokenOk}`, `
+      <p style="margin-top:0">pyannote's speaker model is free, but its makers ask each user to accept their terms. This takes a few minutes, once:</p>
+      <ol><li>Make a free account at <a href="https://huggingface.co/join" target="_blank" rel="noopener">huggingface.co</a>, or sign in.</li>
+        <li>Open <a href="https://huggingface.co/pyannote/speaker-diarization-community-1" target="_blank" rel="noopener">pyannote/speaker-diarization-community-1</a> and accept the terms.</li>
+        <li>Open <a href="https://huggingface.co/settings/tokens" target="_blank" rel="noopener">huggingface.co/settings/tokens</a>, make a token with <b>Read</b> access, and copy it.</li>
+        <li>Paste it here, press Save, then Check. Then download the speaker model in step 3.</li></ol>
+      <div class="row" style="display:flex;gap:6px"><input id="hf-token" type="password" placeholder="hf_..." autocomplete="off" style="margin:0"><button id="token-btn" class="secondary">Save</button><button id="token-check" class="secondary">Check</button></div>
+      <div class="muted" style="font-size:12px">Kept in ${esc(d.secrets_file)}, readable only by you, and never written into a receipt. Check asks Hugging Face whether the token works and whether your account accepted the terms; nothing else goes online.</div>
+      <div id="token-msg" class="msg"></div>`)}
+    ${step(5, "Your first recording", `<div id="tx-first"></div>`)}
+    <div class="imp-card"><h3>Where your files are</h3>
+      <table class="data folders">${d.folders.map((x) => `<tr><td><b>${esc(FOLDERS[x.key][0])}</b><div class="muted">${esc(FOLDERS[x.key][1])}</div></td>
+        <td><code>${esc(x.path)}</code>${x.free_gb != null ? `<div class="muted">${x.free_gb} GB free</div>` : ""}</td>
+        <td>${x.exists ? `<button class="small secondary" data-reveal="${esc(x.key)}">Open</button>` : `<span class="muted">not made yet</span>`}</td></tr>`).join("")}</table>
+      <div class="muted" style="font-size:12px;margin-top:6px">${d.config_file ? `To move one, change its line in <code>${esc(d.config_file)}</code> and restart On the Record. Moving the recordings folder does not move what is in it.` : "These are the built-in defaults: `ontherecord setup` writes a settings file you can change."}</div></div>`;
+  const rows = document.querySelectorAll("#setup table.data:not(.folders) tr");
   d.models.forEach((m, i) => {
     const cells = rows[i + 1].children;
     cells[0].innerHTML = m.status === true ? "" : `<input type="checkbox" data-model="${esc(m.name)}" ${m.recommended ? "checked" : ""}>`;
-    cells[1].innerHTML = `<b>${esc(m.name)}</b>${m.recommended ? ' <span class="badge">fits this computer</span>' : ""}${m.gated ? ' <span class="muted">(needs the token)</span>' : ""}`;
+    cells[1].innerHTML = `<b>${esc(m.name)}</b>${m.recommended ? ' <span class="badge">suits this computer</span>' : ""}${m.gated ? ' <span class="muted">(needs step 4)</span>' : ""}`;
     cells[4].innerHTML = st(m.status);
   });
+  transcribeForm($("#tx-first"), d);
   clearTimeout(setupTimer);
   if (dl.length && $("#tab-setup").classList.contains("active")) setupTimer = setTimeout(refreshSetup, 3000);
 }
 $("#setup").addEventListener("click", async (e) => {
+  const tmsg = (text, kind) => { $("#token-msg").textContent = text; $("#token-msg").className = `msg ${kind}`; };
   if (e.target.id === "dl-btn") {
     const models = [...document.querySelectorAll("#setup [data-model]:checked")].map((x) => x.dataset.model);
     try { await api("/api/setup/models", { json: { models } }); return refreshSetup(); }
@@ -837,10 +921,100 @@ $("#setup").addEventListener("click", async (e) => {
     return;
   }
   if (e.target.id === "token-btn") {
-    try { const r = await api("/api/setup/token", { json: { token: $("#hf-token").value } }); $("#token-msg").textContent = `Saved in ${r.saved}.`; $("#token-msg").className = "msg ok"; }
-    catch (err) { $("#token-msg").textContent = err.message; $("#token-msg").className = "msg err"; }
+    try { const r = await api("/api/setup/token", { json: { token: $("#hf-token").value } }); tmsg(`Saved in ${r.saved}. Now press Check.`, "ok"); }
+    catch (err) { tmsg(err.message, "err"); }
   }
+  if (e.target.id === "token-check") {
+    tmsg("Asking Hugging Face…", "");
+    try { const r = await api("/api/setup/check-token", { json: { token: $("#hf-token").value || null } }); tmsg(r.message, r.access ? "ok" : "warn"); }
+    catch (err) { tmsg(err.message, "err"); }
+  }
+  const rv = e.target.closest("[data-reveal]");
+  if (rv) api("/api/reveal", { json: { which: rv.dataset.reveal } }).catch((err) => rv.insertAdjacentHTML("afterend", ` <span class="msg err">${esc(err.message)}</span>`));
 });
+
+// ---------------------------------------------------------------- transcribe a recording (the ready-made recipe)
+// Setup's step 5 and the Library's button: files or a link in, a job set for this computer out, followed to the end.
+const LANGS = [["", "English"], ["detect", "Detect the language"], ["es", "Spanish"], ["fr", "French"], ["de", "German"],
+  ["pt", "Portuguese"], ["it", "Italian"], ["zh", "Chinese"], ["ja", "Japanese"], ["ko", "Korean"], ["ar", "Arabic"], ["hi", "Hindi"], ["ru", "Russian"]];
+function transcribeForm(el, setup = null) {
+  let chosen = [];
+  const extraction = setup && setup.models.find((m) => m.name === setup.fit.extraction);
+  el.innerHTML = `<p style="margin-top:0">Choose an audio or video file on this computer, or paste a link (YouTube and most video sites).
+      On the Record finds who speaks when, writes down what they say, and lines the two up. It works in the background: you can close this.</p>
+    <div class="row" style="display:flex;gap:6px"><button class="secondary" data-tx="pick">Choose a file…</button>
+      <input data-tx="src" placeholder="…or paste a link, or a file's whole path" style="margin:0"></div>
+    <div class="muted" data-tx="chosen" style="margin:4px 0"></div>
+    <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin:6px 0">
+      <label style="margin:0">Language <select data-tx="lang" style="display:inline-block;width:auto;margin-left:4px">${LANGS.map(([v, t]) => `<option value="${v}">${t}</option>`).join("")}</select></label>
+      <label style="margin:0"><input type="checkbox" data-tx="comments"> Also list the public comments (slower: a large language model${extraction && extraction.status !== true ? "; download it in step 3 first" : ""})</label></div>
+    <button data-tx="go">Transcribe</button> <span class="msg" data-tx="msg"></span>`;
+  const q = (k) => el.querySelector(`[data-tx="${k}"]`);
+  const say = (html, kind = "") => { q("msg").innerHTML = html; q("msg").className = `msg ${kind}`; };
+  el.onclick = async (e) => {
+    const t = e.target.closest("[data-tx]")?.dataset.tx;
+    if (t === "pick") pickMedia(LS.get("mediaDir"), (paths, dir) => {
+      chosen = paths; LS.set("mediaDir", dir);
+      q("chosen").textContent = paths.length === 1 ? paths[0] : `${paths.length} recordings in ${dir}`;
+    });
+    if (t === "go") {
+      const typed = q("src").value.trim(), lang = q("lang").value;
+      const sources = chosen.concat(typed ? [typed] : []);
+      say("Queueing…");
+      try {
+        const r = await api("/api/transcribe", { json: { sources, with_comments: q("comments").checked, language: lang === "" ? null : lang === "detect" ? "" : lang } });
+        say(`Queued as <code>${esc(r.run_id)}</code>.`, "ok");
+        followJob(r.run_id, (html, kind) => { if (document.body.contains(el)) say(html, kind); });
+      } catch (err) { say(esc(err.message), "err"); }
+    }
+    const open = e.target.closest("[data-open-run]");
+    if (open) { closeModal(); openRun(open.dataset.openRun); }
+  };
+}
+async function followJob(runId, say) {
+  const j = (await api("/api/jobs").catch(() => [])).find((x) => x.run_id === runId);
+  if (!j) return;
+  const c = j.cells || {}, total = Object.values(c).reduce((a, b) => a + b, 0), fin = (c.ran || 0) + (c.cached || 0);
+  if (j.status === "done") return say(`Done. <button class="small" data-open-run="${esc(runId)}">Open it in the Library</button>`, "ok");
+  if (j.status === "failed" || j.status === "cancelled") return say(`It ${j.status === "failed" ? "stopped with a problem" : "was cancelled"}: the Jobs tab shows its log, and Results shows which step and why.`, "err");
+  say(j.status === "queued" ? `Queued as <code>${esc(runId)}</code>, waiting for the job ahead of it.` : `Working: ${fin} of ${total || "?"} steps done. The first run of a model takes longer while it loads.`, "ok");
+  setTimeout(() => followJob(runId, say), 3000);
+}
+async function openRun(runId) {
+  const lib = await api("/api/library").catch(() => []);
+  const rec = lib.find((r) => r.views.some((v) => v.run_id === runId));
+  if (rec) openPlayer(runId, rec.id); else showTab("results");
+}
+
+// Audio and video files on this machine, for "Transcribe a recording": one file, or every recording in a folder.
+async function pickMedia(start, done) {
+  async function show(path) {
+    let d;
+    try { d = await api(`/api/fs?files=true${path ? `&path=${encodeURIComponent(path)}` : ""}`); } catch (err) { d = await api("/api/fs?files=true"); }
+    const join = (n) => d.path.replace(/[\\/]$/, "") + (d.path.includes("\\") ? "\\" : "/") + n;
+    openModal(`<h3>Choose a recording</h3><div class="muted" style="font-family:var(--mono)">${esc(d.path)}</div>
+      <div class="row" style="display:flex;gap:6px;margin-top:6px">${d.parent ? `<button class="small secondary" data-go="${esc(d.parent)}">↑ Up</button>` : ""}
+        <button class="small secondary" data-go="${esc(d.home)}">Home</button><button class="small secondary" data-go="${esc(d.archive)}">Archive</button></div>
+      <div class="fs-list">${d.dirs.map((n) => `<div data-go="${esc(join(n))}">📁 ${esc(n)}</div>`).join("")}
+        ${d.files.map((f) => `<div data-file="${esc(join(f.name))}">🎞 ${esc(f.name)} <span class="muted">${gb(f.bytes)}</span></div>`).join("")}
+        ${d.dirs.length || d.files.length ? "" : `<p class="muted" style="padding:8px">No folders or recordings here.</p>`}</div>
+      ${d.files.length > 1 ? `<button class="secondary" data-all="1">Use all ${d.files.length} recordings in this folder</button>` : ""}`);
+    $("#modal-body").onclick = (e) => {
+      const g = e.target.closest("[data-go]");
+      if (g) return show(g.dataset.go);
+      const f = e.target.closest("[data-file]"), all = e.target.closest("[data-all]");
+      if (f || all) { closeModal(); $("#modal-body").onclick = null; done(f ? [f.dataset.file] : d.files.map((x) => join(x.name)), d.path); }
+    };
+  }
+  show(start);
+}
+function showAddRecording() {
+  playing = null;
+  history.replaceState(null, "", location.pathname);
+  $("#player").innerHTML = `<h3>Transcribe a recording</h3><div id="tx-lib"></div>`;
+  transcribeForm($("#tx-lib"), SETUP);
+}
+$("#lib-add").addEventListener("click", showAddRecording);
 
 // ---------------------------------------------------------------- comparing two runs
 async function showCompare(a, b) {
@@ -889,9 +1063,54 @@ $("#grid").addEventListener("click", (e) => {
   MACHINE = machine;
   $("#machine").textContent = `${machine.gpu ? machine.gpu.name : "no GPU"} · workspace ${machine.workspace}`;
   await loadRecipeList();
+  const draft = LS.json("draft");
+  if (draft && Array.isArray(draft.stages)) {
+    form = { ...form, ...draft, stages: draft.stages.filter((st) => DEFS[st.name]) };
+    $("#r-name").value = form.name || ""; $("#r-desc").value = form.description || "";
+    $("#r-urls").value = form.urls || ""; $("#r-files").value = form.files || "";
+  }
   renderStages();
+  restoreChat();
   await refreshLibrary();
+  // Pick up where the person left off: a link to a moment wins, then the last recording (paused where it was),
+  // then the last tab. Until the Library has a recording, Setup's guide comes first.
   const m = location.hash.match(/^#play\/([^/]+)\/([^/]+)(?:\/([\d.]+))?/);
+  const last = LS.json("play");
   if (m) openPlayer(decodeURIComponent(m[1]), decodeURIComponent(m[2]), m[3] ? +m[3] : null);
+  else {
+    if (last && LIB.some((r) => r.id === last.item)) openPlayer(last.run, last.item, last.t || null, { switchTab: false, autoplay: false });
+    else if (!LIB.length) showAddRecording();
+    const tab = LS.get("tab");
+    showTab(!LIB.length ? "setup" : tab && document.querySelector(`nav button[data-tab="${tab}"]`) ? tab : "library");
+  }
+  sinceLastTime();
+  api("/api/setup").then((d) => { SETUP = d; markSetupTab(setupDone(d, LIB.length)); }).catch(() => {});
   setInterval(() => { if ($("#tab-jobs").classList.contains("active")) refreshJobs(); }, 2000);
 })();
+
+// What finished, failed or is still going since this browser last had the GUI open.
+async function sinceLastTime() {
+  const seen = LS.get("seen"), jobs = await api("/api/jobs").catch(() => []);
+  const mark = () => LS.set("seen", new Date().toISOString());
+  mark();
+  setInterval(mark, 60000);
+  if (!seen) return;
+  const ended = jobs.filter((j) => j.finished_utc && new Date(j.finished_utc) > new Date(seen));
+  const going = jobs.filter((j) => j.status === "running" || j.status === "queued");
+  if (!ended.length && !going.length) return;
+  const item = (j) => j.status === "done" ? `✓ <b>${esc(j.name)}</b> finished${j.backend === "local" ? ` <a href="#" data-since-open="${esc(j.run_id)}">open</a>` : ""}`
+    : `✗ <b>${esc(j.name)}</b> ${j.status === "failed" ? "failed" : "was cancelled"} <a href="#" data-since-why="${esc(j.run_id)}">why</a>`;
+  $("#since").innerHTML = `<span>Since you were last here:</span> ${ended.slice(0, 6).map(item).join(" · ")}${ended.length > 6 ? ` · and ${ended.length - 6} more` : ""}
+    ${going.length ? `${ended.length ? " · " : ""}${going.length} job${going.length > 1 ? "s" : ""} still going (<a href="#" data-since-jobs="1">Jobs</a>)` : ""}
+    <span class="grow"></span><button class="small secondary" data-since-close="1">×</button>`;
+  $("#since").hidden = false;
+}
+$("#since").addEventListener("click", (e) => {
+  const t = e.target.closest("a, button");
+  if (!t) return;
+  e.preventDefault();
+  if (t.dataset.sinceOpen) openRun(t.dataset.sinceOpen);
+  if (t.dataset.sinceWhy) { showTab("results"); showRun(t.dataset.sinceWhy); }
+  if (t.dataset.sinceJobs) showTab("jobs");
+  if (t.dataset.sinceClose) $("#since").hidden = true;
+});

@@ -55,6 +55,20 @@ class ModelsIn(BaseModel):
     models: list[str]
 
 
+class TokenCheckIn(BaseModel):
+    token: str | None = None  # default: the saved one
+
+
+class TranscribeIn(BaseModel):
+    sources: list[str]
+    with_comments: bool = False
+    language: str | None = None  # None: the stage's default (en); "": let Whisper detect it
+
+
+class RevealIn(BaseModel):
+    which: str
+
+
 class ConfirmIn(BaseModel):
     tool: str
     args: dict = {}
@@ -288,17 +302,23 @@ def create_app(cfg: MachineConfig, dispatch: bool = True) -> FastAPI:
         return volumes()
 
     @app.get("/api/fs")
-    def folders(path: str | None = None):
-        """Subfolders of a folder, for choosing a source or an archive (folders only; files are never listed)."""
+    def folders(path: str | None = None, files: bool = False):
+        """Subfolders of a folder, for choosing a source or an archive; with files=true, also its audio and video
+        files (no other kind of file is ever listed)."""
+        from .ingest import KINDS
         p = Path(path).expanduser() if path else Path.home()
         if not p.is_dir():
             raise HTTPException(404, f"not a folder: {p}")
         try:
-            dirs = sorted((d.name for d in p.iterdir() if d.is_dir() and not d.name.startswith(".")), key=str.lower)
+            entries = [e for e in p.iterdir() if not e.name.startswith(".")]
         except PermissionError:
-            dirs = []
+            entries = []
+        dirs = sorted((d.name for d in entries if d.is_dir()), key=str.lower)
+        media = KINDS["audio"] | KINDS["video"]
+        found = sorted(({"name": f.name, "bytes": f.stat().st_size} for f in entries
+                        if files and f.is_file() and f.suffix.lower() in media), key=lambda f: f["name"].lower())
         return {"path": str(p.resolve()), "parent": str(p.resolve().parent) if p.resolve().parent != p.resolve()
-                else None, "dirs": dirs, "home": str(Path.home()), "archive": str(cfg.archive)}
+                else None, "dirs": dirs, "files": found, "home": str(Path.home()), "archive": str(cfg.archive)}
 
     @app.post("/api/ingest/preview")
     def ingest_preview(body: IngestIn):
@@ -399,6 +419,12 @@ def create_app(cfg: MachineConfig, dispatch: bool = True) -> FastAPI:
         return FileResponse(csv_path, filename=csv_path.name, media_type="text/csv")
 
     # ------------------------------------------------------------------ setup
+    def folder_paths() -> dict[str, Path]:
+        from . import bootstrap as b
+        from .config import user_config_dir
+        return {"workspace": cfg.workspace, "archive": cfg.archive, "models": cfg.models_root or b.home_dir() / "models",
+                "settings": cfg.source.parent if cfg.source else user_config_dir()}
+
     @app.get("/api/setup")
     def setup_info():
         import shutil as sh
@@ -408,19 +434,79 @@ def create_app(cfg: MachineConfig, dispatch: bool = True) -> FastAPI:
         root = cfg.models_root or b.home_dir() / "models"
         status = b.model_status(root)
         fit = b.fit(hw)
+        want = b.recommended_models(fit)
         tools = {}
         for t in ("ffmpeg", "ffprobe", "llama_server"):
             path = cfg.tool(t)
             tools[t] = path if (Path(path).is_file() or sh.which(path)) else None
-        return {"hardware": hw, "fit": fit, "tools": tools, "models_root": str(root),
-                "models": [{"name": n, "size_gb": round(m["bytes"] / 1e9, 1), "about": m["about"], "role": m["role"],
-                            "gated": bool(m.get("gated")), "status": status[n],
-                            "recommended": n in (fit["assistant"], fit["extraction"]) or m["role"] == "speech"}
+
+        def free_gb(p: Path) -> int | None:
+            while not p.exists() and p.parent != p:
+                p = p.parent
+            try:
+                return round(sh.disk_usage(p).free / 1e9)
+            except OSError:
+                return None
+        folders = [{"key": k, "path": str(p), "exists": p.exists(), "free_gb": free_gb(p)}
+                   for k, p in folder_paths().items()]
+        return {"hardware": hw, "fit": fit, "accel": b.accel(hw, cfg.python_for("audio")), "tools": tools,
+                "models_root": str(root), "folders": folders,
+                "models": [{"name": n, "size_gb": round(m["bytes"] / 1e9, 1), "bytes": m["bytes"], "about": m["about"],
+                            "role": m["role"],
+                            "gated": bool(m.get("gated")), "status": status[n], "recommended": n in want}
                            for n, m in b.MODELS.items()],
                 "has_token": bool(os.environ.get("HF_TOKEN") or cfg.secret_env().get("HF_TOKEN")),
                 "secrets_file": str(cfg.env_file or user_config_dir() / "secrets.env"),
                 "config_file": str(cfg.source) if cfg.source else None, "workspace": str(cfg.workspace),
                 "archive": str(cfg.archive)}
+
+    @app.post("/api/setup/check-token")
+    def setup_check_token(body: TokenCheckIn):
+        """Ask Hugging Face about the token (pasted, or the saved one). The one setup call that goes online, and only
+        when a person presses Check."""
+        from . import bootstrap as b
+        token = (body.token or "").strip() or os.environ.get("HF_TOKEN") or cfg.secret_env().get("HF_TOKEN")
+        if not token:
+            raise HTTPException(422, "There is no token to check yet: paste one first.")
+        try:
+            return b.check_hf_token(token)
+        except OSError as e:
+            raise HTTPException(502, f"Could not reach Hugging Face ({e}). Is this computer online?")
+
+    @app.post("/api/reveal")
+    def reveal(body: RevealIn):
+        """Open one of On the Record's own folders in this computer's file manager."""
+        import subprocess
+        import sys
+        p = folder_paths().get(body.which)
+        if p is None or not p.is_dir():
+            raise HTTPException(404, f"no folder {body.which!r} yet")
+        cmd = {"win32": ["explorer", str(p)], "darwin": ["open", str(p)]}.get(sys.platform, ["xdg-open", str(p)])
+        try:
+            subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError:
+            raise HTTPException(501, f"cannot open a file manager here; the folder is {p}")
+        return {"opened": str(p)}
+
+    @app.post("/api/transcribe")
+    def transcribe(body: TranscribeIn):
+        """Queue the ready-made transcript recipe for links and files, set for this machine (presets.py)."""
+        from . import presets
+        sources = [x.strip() for x in body.sources if x.strip()]
+        if not sources:
+            raise HTTPException(422, "Choose a file or paste a link first.")
+        bad = [x for x in sources if not presets.is_link(x) and not Path(x).expanduser().is_absolute()]
+        if bad:
+            raise HTTPException(422, f"Give the whole path of each file: {', '.join(bad)}")
+        missing = presets.missing_models(cfg, body.with_comments)
+        if missing:
+            raise HTTPException(422, f"Download these models first (Setup, step 3): {', '.join(missing)}")
+        text = presets.transcript_recipe([x if presets.is_link(x) else str(Path(x).expanduser()) for x in sources],
+                                         body.with_comments, body.language)
+        try:
+            return {"run_id": queue.submit(text, recipes_dir), "recipe": text}
+        except RecipeError as e:
+            raise HTTPException(422, str(e))
 
     @app.post("/api/setup/token")
     def setup_token(body: TokenIn):

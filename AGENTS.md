@@ -11,7 +11,12 @@ ontherecord submit RECIPE                                    # or just queue it;
 ontherecord jobs --json                                      # the queue, and which process is running it
 ontherecord wait RUN_ID --json                               # block until it ends
 ontherecord cancel RUN_ID                                    # stop it cleanly; returns once it has stopped
+ontherecord transcribe FILE_OR_LINK... --wait --json         # speakers + transcript with no recipe (presets.py)
 ```
+
+`transcribe` queues the ready-made recipe the GUI and the assistant use. It writes this machine's Whisper model,
+compute type and (with `--comments`) extraction model and offload into the recipe, so the run record shows them;
+`--show` prints the recipe instead. It refuses, naming them, when the models it needs are not downloaded.
 
 - The queue is the GUI's queue (SQLite in `<workspace>/jobs.db`), so a person watching the GUI sees an agent's jobs
   and the reverse. One job runs at a time per workspace, which keeps two models off one GPU.
@@ -54,11 +59,18 @@ serves the same tools over stdio to any MCP client, e.g. `claude mcp add onthere
 ## Setting up a machine
 
 ```bash
-ontherecord setup --check          # this machine, its programs, which models are downloaded
+ontherecord setup --check          # this machine: GPUs, driver, the PyTorch and llama.cpp builds it suits, models
 ontherecord setup                  # fetch ffmpeg and llama-server if missing; write a machine config if none
 ontherecord models                 # the catalog and what fits this machine
 ontherecord models get NAME        # pinned revision, checked against Hugging Face's SHA-256
 ```
+
+`src/ontherecord/hwdetect.py` (standard library only; the installers run it before installing anything) decides
+from `nvidia-smi` which PyTorch build the machine gets (a dependency group: `cu128` by default, `cu126` for cards
+older than Turing or drivers older than CUDA 12.8, `cpu` without an NVIDIA card) and which llama.cpp build (CUDA
+13.4, CUDA 12, Vulkan or CPU, verified with `llama-server --list-devices`, falling back down that list). PyTorch's
+CUDA 13 build is out on purpose: CTranslate2 (faster-whisper) needs CUDA 12's cuBLAS, and the CUDA 12 and 13 cuDNN
+wheels install the same files. Nobody needs the CUDA Toolkit, only a new enough driver.
 
 Model downloads are large (3 to 17 GB each): ask the person before starting one. The Hugging Face token goes in
 the machine's secrets file (`--save-token`), never in a recipe, a receipt or the log.

@@ -224,15 +224,15 @@ class Toolbox:
         """Start transcribing video or audio links (YouTube or other sites): download, find who speaks when,
         transcribe, and build speaker turns. with_comments=true also lists the public comments with the large
         language model, which takes longer. It runs in the background; this returns its job id."""
-        links = [l.strip() for l in (links if isinstance(links, list) else [links]) if str(l).strip()]
+        from . import presets
+        links = [str(l).strip() for l in (links if isinstance(links, list) else [links]) if str(l).strip()]
         if not links:
             return "Give at least one link."
-        stages = ["download: {}", "audio: {}", "diarize: {}", "transcribe: {}", "align: {}", "blocks: {}"]
-        if with_comments:
-            stages.append("extract_comments: {}")
-        text = (f"name: {json.dumps('assistant ' + ('transcript and comments' if with_comments else 'transcript'))}\n"
-                "source:\n  urls:\n" + "".join(f"    - {json.dumps(l)}\n" for l in links)
-                + "stages:\n" + "".join(f"  - {s}\n" for s in stages))
+        missing = presets.missing_models(self.cfg, with_comments)
+        if missing:
+            return (f"Cannot start yet: these models are not downloaded: {', '.join(missing)}. "
+                    "The Setup tab downloads them.")
+        text = presets.transcript_recipe(links, with_comments)
         run_id = self.queue.submit(text, self.cfg.workspace / "recipes")
         waiting = sum(j["status"] in ("queued", "running") for j in self.queue.list() if j["run_id"] != run_id)
         return (f"Started job {run_id} for {len(links)} link(s)"

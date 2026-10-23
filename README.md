@@ -32,9 +32,11 @@ Here, that cannot happen silently:
 
 ## Install
 
-Non-technical users: see [INSTALL.md](INSTALL.md). Double-click the installer for your system; it installs
-Python, the packages (pinned by `uv.lock`), ffmpeg and llama.cpp (pinned and checked), offers the models this
-computer can run, and puts **On the Record** on the desktop. Linux servers: see [docker/README.md](docker/README.md).
+Non-technical users: see [INSTALL.md](INSTALL.md), which walks through the whole first run. Double-click the
+installer for your system; it looks at the graphics card and its driver, installs Python, the packages (pinned by
+`uv.lock`, with the PyTorch build that suits the card), ffmpeg and llama.cpp (pinned and checked, CUDA 13.4 when the
+driver supports it), offers the models this computer can run, and puts **On the Record** on the desktop. No CUDA
+Toolkit is needed. Linux servers: see [docker/README.md](docker/README.md).
 
 ## Quick start (developers)
 
@@ -42,6 +44,7 @@ computer can run, and puts **On the Record** on the desktop. Linux servers: see 
 python -m venv .venv && .venv/bin/pip install -e ".[server]"      # Windows: .venv\Scripts\pip
 cp machine.example.yaml machine.yaml                               # then edit: workspace, tools, environments
 ontherecord doctor                                                 # what this machine has
+ontherecord transcribe meeting.mp4 --wait                          # speakers and a transcript, set for this machine
 ontherecord plan recipes/jan29-left.yaml                           # what would be reused, what would run
 ontherecord run  recipes/jan29-left.yaml                           # Ctrl+C cancels cleanly
 ontherecord show                                                   # the last run, items x stages, with checks
@@ -53,7 +56,10 @@ The GUI has seven tabs:
 
 - **Library**: every recording, opened in a player beside its transcript. The player plays the audio the
   transcript was made from, with a timeline of who spoke when; click a line to jump there. Search across every
-  transcript at once, and see the public comments and any failed checks for that run.
+  transcript at once, and see the public comments and any failed checks for that run. **Transcribe a recording**
+  takes a file or a link with no recipe to write, and **Save** gives the transcript as .txt, .srt or .vtt. The GUI
+  reopens where you left it (the recording, paused where you stopped; the tab; the Ask conversation; the Build
+  draft) and says what finished or failed since you last looked.
 - **Ask**: plain-English questions ("where did people talk about the data center?", "transcribe this link") to a
   small model running on this computer. It answers from the transcripts, gives times you can click, and shows what
   it looked at. Anything that starts work waits for you to press a button.
@@ -65,8 +71,11 @@ The GUI has seven tabs:
 - **Results**: each run as a grid of items × stages; click a cell for its receipt and a preview of its output.
   **Compare with** lines two runs up: for each item and stage, whether the outputs are byte-identical, the headline
   number on each side (dB lost, speakers, words, comments), and which settings or inputs made the difference.
-- **Setup**: this computer and what fits it, the helper programs, the models (download buttons; every file is
-  checked against its published fingerprint), and the Hugging Face token the speaker model needs.
+- **Setup**: a five-step guide that opens by itself until the first recording is in: this computer (graphics card,
+  driver, what each part will run on, and what to do if the driver is too old), the helper programs, the models
+  (download buttons; every file is checked against its published fingerprint), the Hugging Face token (with a
+  button that checks it and whether the speaker model's terms are accepted), and a first recording. It also shows
+  where the recordings, archive, models and settings live, with buttons that open each folder.
 
 The same queue works from the command line, for scripts and coding agents:
 
