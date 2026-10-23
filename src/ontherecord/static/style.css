@@ -216,3 +216,5 @@ table.folders code { word-break: break-all; }
 .since[hidden] { display: none; }
 .since .grow { flex: 1; }
 .player-tools { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 4px 0; font-size: 12px; }
+.usage-line { font-size: 13px; color: var(--muted); margin: 0 0 10px; }
+.usage-line b { color: var(--fg); }

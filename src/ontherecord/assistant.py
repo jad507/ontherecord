@@ -24,6 +24,7 @@ from .config import MachineConfig
 from .jobs import JobQueue, hold, release
 from .llm import ManagedLlamaServer
 from .tools import Toolbox, openai_tools
+from .usage import record_assistant
 
 DEFAULT_MODEL = "gemma-4-E4B-it-UD-Q8_K_XL.gguf"
 
@@ -136,7 +137,13 @@ class Assistant:
                 "max_tokens": 1024, "chat_template_kwargs": {"enable_thinking": False}}
         req = urllib.request.Request(url + "/chat/completions", data=json.dumps(body).encode(),
                                      headers={"Content-Type": "application/json"})
-        return json.loads(urllib.request.urlopen(req, timeout=600).read())["choices"][0]["message"]
+        t0 = time.perf_counter()
+        r = json.loads(urllib.request.urlopen(req, timeout=600).read())
+        try:  # the usage log; a full disk must not cost the person their answer
+            record_assistant(self.cfg.workspace, self.cfg.assistant.get("model") or url, r, time.perf_counter() - t0)
+        except OSError:
+            pass
+        return r["choices"][0]["message"]
 
     # ------------------------------------------------------------------ one turn
     def chat(self, messages: list[dict], max_rounds: int = 5) -> dict:

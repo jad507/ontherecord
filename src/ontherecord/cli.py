@@ -7,6 +7,7 @@
     ontherecord show  [RUN_ID]             a run's grid of items x stages, with check results
     ontherecord receipt RUN_ID ITEM STAGE  the full receipt behind one cell
     ontherecord transcribe FILE|LINK...    queue speaker-labelled transcripts, set for this machine (no recipe needed)
+    ontherecord usage                      compute hours, tokens and their API-price equivalent, speeds by version
 
   The job queue (the same one the GUI uses; one job at a time per workspace):
     ontherecord submit RECIPE [--wait]     queue a run; prints its run id
@@ -114,15 +115,19 @@ LEGEND = "= reused   > runs   ? runs unless its inputs come out byte-identical  
 
 
 def cmd_plan(args) -> int:
+    from .usage import Rates, estimate_plan
+    cfg = config_from(args)
     recipe = load_recipe(args.recipe)
-    cells = Runner(recipe, config_from(args)).plan()
+    cells = Runner(recipe, cfg).plan()
+    est = estimate_plan(Rates(cfg.workspace), recipe, cells, cfg.tool("ffprobe"))
     if args.json:
-        print(json.dumps({"name": recipe.name, "stages": [s.info() for s in recipe.stages], "cells": cells},
-                         indent=1))
+        print(json.dumps({"name": recipe.name, "stages": [s.info() for s in recipe.stages], "cells": cells,
+                          "estimate": est}, indent=1))
         return 0
     print(f"{recipe.name}: {len(recipe.items)} item(s)\n")
     print(grid([s.name for s in recipe.stages], cells))
     print("\n" + LEGEND)
+    print(f"\ntime: {est['text'] or 'nothing to run'}")
     for s in recipe.stages:
         if s.mixed:
             print(f"\n! {s.name} takes inputs that trace back to different stages making the same artifact: "
@@ -252,13 +257,57 @@ def cmd_transcribe(args) -> int:
     if args.show:
         print(text, end="")
         return 0
+    from .usage import estimate_text
+    est = estimate_text(cfg, text, cfg.workspace / "recipes")
     q = JobQueue(cfg)
     run_id = q.submit(text, cfg.workspace / "recipes")
     _announce(run_id, args)
+    if est["text"] and not args.json:
+        print(f"expected: {est['text']}", file=sys.stderr)
     if not q.dispatcher():
         print("note: nothing is running this workspace's queue, so the job will wait. Start `ontherecord serve` "
               "(the GUI) or `ontherecord dispatch`.", file=sys.stderr)
     return _wait(q, run_id, args.json) if args.wait else 0
+
+
+def cmd_usage(args) -> int:
+    """What this machine has done: compute hours, tokens and what they would cost through an API, and speeds."""
+    from .jobs import JobQueue
+    from .usage import PRICES, ledger
+    cfg = config_from(args)
+    d = ledger(cfg.workspace, JobQueue(cfg).list(limit=100000))
+    if args.json:
+        print(json.dumps(d, indent=1))
+        return 0
+    c, a = d["compute"], d["api_equivalent"]
+    if not d["receipts"]:
+        print("No work recorded yet in this workspace.")
+        return 0
+    dev = {"cuda": "on the graphics card", "server": "in the language-model server", "cpu": "on the processor",
+           "mps": "on the Apple GPU"}
+    print(f"Work recorded in {cfg.workspace} since {d['since']} ({d['receipts']} receipts)\n")
+    print(f"compute   : {c['hours']} h (" + ", ".join(f"{h} h {dev.get(k, k)}" for k, h in c["by_device_hours"].items())
+          + f"; loading models {c['setup_hours']} h)" + (f"; assistant {c['assistant_hours']} h" if c["assistant_hours"] else ""))
+    if c["busy_hours"]:
+        print("            the queue was busy " + ", ".join(f"{h} h with {k}" for k, h in c["busy_hours"].items()))
+    print("by stage  : " + " · ".join(f"{k} {v['hours']} h" for k, v in
+                                      sorted(d["stages"].items(), key=lambda kv: -kv[1]["seconds"]) if v["hours"]))
+    t = d["tokens"]
+    print(f"tokens    : {t['input']:,} in, {t['output']:,} out, counted by the local models"
+          + (f" (the assistant: {d['assistant']['calls']} calls)" if d["assistant"]["calls"] else ""))
+    if a["uncounted_receipts"]:
+        print(f"            {a['uncounted_receipts']} language-model runs from before token counting are not included")
+    print("API price : " + " · ".join(f"{PRICES[k]['name']} ${a['usd'][k]:,.2f}" for k in a["headline"])
+          + "   (" + ", ".join(f"{p['name']} ${a['usd'][k]:,.2f}" for k, p in PRICES.items() if k not in a["headline"]) + ")")
+    print(f"            prices read {a['prices_read']} from the providers' pages; standard rates, no caching or batch "
+          "discounts; an API's own tokenizer would count somewhat differently")
+    for s in d["speeds"]["audio"]:
+        print(f"speed     : {s['stage']} {s['setting']}: {s['times_real_time']}x real time ({s['software']}; {s['gpu']}; "
+              f"{s['runs']} runs)")
+    for s in d["speeds"]["llm"]:
+        print(f"speed     : {s['stage']} {s['model']}: generation {s['gen_tokens_per_s']} tok/s, prompt "
+              f"{s['prompt_tokens_per_s']} tok/s (llama.cpp {s['llama_build']}; {s['gpu']}; {s['runs']} runs)")
+    return 0
 
 
 def cmd_exclusive(args) -> int:
@@ -585,6 +634,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--wait", action="store_true", help="then follow it until it ends (exit code as for wait)")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_transcribe)
+    p = sub.add_parser("usage", help="compute hours, tokens and their API-price equivalent, and speeds by version")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(fn=cmd_usage)
     p = sub.add_parser("serve")
     p.add_argument("--port", type=int, default=8765)
     p.add_argument("--host", default="127.0.0.1", help="only change this inside a container (see docker/)")

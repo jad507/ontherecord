@@ -232,11 +232,17 @@ class Toolbox:
         if missing:
             return (f"Cannot start yet: these models are not downloaded: {', '.join(missing)}. "
                     "The Setup tab downloads them.")
+        from .usage import estimate_text
         text = presets.transcript_recipe(links, with_comments)
+        try:
+            est = estimate_text(self.cfg, text, self.cfg.workspace / "recipes")["text"]
+        except Exception:  # an estimate is a courtesy; the job goes ahead without one
+            est = ""
         run_id = self.queue.submit(text, self.cfg.workspace / "recipes")
         waiting = sum(j["status"] in ("queued", "running") for j in self.queue.list() if j["run_id"] != run_id)
         return (f"Started job {run_id} for {len(links)} link(s)"
-                + (f"; {waiting} job(s) ahead of it" if waiting else "") + ". Its progress is on the Jobs tab.")
+                + (f"; {waiting} job(s) ahead of it" if waiting else "") + ". Its progress is on the Jobs tab."
+                + (f" It should take {est}." if est else ""))
 
     def jobs_status(self) -> str:
         """What is running, waiting, or finished recently, with how far along each one is."""
@@ -248,11 +254,15 @@ class Toolbox:
             rec = self.store.run_dir(j["run_id"]) / "run.json"
             prog = ""
             if rec.is_file():
-                cells = [c["status"] for row in json.loads(rec.read_text(encoding="utf-8"))["cells"].values()
-                         for c in row.values()]
+                record = json.loads(rec.read_text(encoding="utf-8"))
+                cells = [c["status"] for row in record["cells"].values() for c in row.values()]
                 prog = f", {sum(c in ('ran', 'cached') for c in cells)} of {len(cells)} steps done"
                 if any(c == "failed" for c in cells):
                     prog += f", {sum(c == 'failed' for c in cells)} failed"
+                if j["status"] == "running" and record.get("stages"):
+                    from .usage import Rates, estimate_run, left_text
+                    prog += ", " + left_text(estimate_run(Rates(self.cfg.workspace), record,
+                                                          self.cfg.tool("ffprobe"))["seconds"])
             lines.append(f"- {j['name']} (job {j['run_id']}): {j['status']}{prog}")
         return "\n".join(lines)
 

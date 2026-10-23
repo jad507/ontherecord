@@ -38,7 +38,7 @@ const secsBetween = (a, b) => (a && b ? (new Date(b) - new Date(a)) / 1000 : nul
 function showTab(name) {
   document.querySelectorAll("nav button").forEach((b) => b.classList.toggle("active", b.dataset.tab === name));
   document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.id === `tab-${name}`));
-  if (name === "jobs") refreshJobs();
+  if (name === "jobs") { refreshJobs(); refreshUsage(); }
   if (name === "results") refreshRuns();
   if (name === "library") refreshLibrary();
   if (name === "import") refreshImport();
@@ -249,7 +249,7 @@ $("#plan-btn").addEventListener("click", async () => {
   readForm();
   try {
     const p = await api("/api/plan", { json: { text: toYaml() } });
-    $("#plan").innerHTML = gridHtml(p.stages, p.cells, false) + legendHtml(true);
+    $("#plan").innerHTML = (p.estimate && p.estimate.text ? `<p class="msg ok">Time: ${esc(p.estimate.text)}.</p>` : "") + gridHtml(p.stages, p.cells, false) + legendHtml(true);
     msg("");
   } catch (err) { msg(err.message, "err"); }
 });
@@ -302,11 +302,50 @@ function legendHtml(plan) {
 }
 
 // ---------------------------------------------------------------- jobs
+// How long is left: from this computer's own pace per stage (usage.py), shown in its yardsticks.
+const canLeft = (j) => j.status === "running" || j.status === "queued";
+function leftText(s, status) {
+  if (!s) return "";
+  const d = s < 60 ? "under a minute" : `about ${fmtDur(Math.round(s / 60) * 60).replace(/ 0 s$/, "")}`;
+  return status === "queued" ? `${d} once it starts` : `${d} left`;
+}
+async function refreshUsage() {
+  const u = await api("/api/usage").catch(() => null);
+  if (!u || !u.receipts) { $("#usage-line").innerHTML = ""; return; }
+  const a = u.api_equivalent, P = a.prices;
+  $("#usage-line").innerHTML = `This computer has done <b>${u.compute.hours} h</b> of work since ${esc(u.since)}
+    · <b>${(u.tokens.input + u.tokens.output).toLocaleString()}</b> tokens through local models, which would have cost about
+    ${a.headline.map((k) => `<b>$${a.usd[k].toFixed(2)}</b> at ${esc(P[k].name)}`).join(" or ")} prices (read ${esc(a.prices_read)})
+    · <a href="#" id="usage-more">details</a>`;
+}
+$("#usage-line").addEventListener("click", async (e) => {
+  if (e.target.id !== "usage-more") return;
+  e.preventDefault();
+  const u = await api("/api/usage"), a = u.api_equivalent;
+  const dev = { cuda: "graphics card", server: "language-model server", cpu: "processor", mps: "Apple GPU" };
+  openModal(`<h3>Work on this computer since ${esc(u.since)}</h3>
+    <p>${u.compute.hours} h in all: ${Object.entries(u.compute.by_device_hours).map(([k, h]) => `${h} h on the ${esc(dev[k] || k)}`).join(", ")}, and ${u.compute.setup_hours} h loading models.
+      Each receipt is one stage done for one recording; a reused result is not counted again.${u.compute.assistant_hours ? ` The assistant: ${u.compute.assistant_hours} h.` : ""}</p>
+    ${table(Object.entries(u.stages).filter(([, v]) => v.receipts).map(([k, v]) => ({ k, ...v })), [["stage", (r) => r.k], ["runs", (r) => r.receipts], ["hours", (r) => r.hours],
+      ["tokens in", (r) => (r.input_tokens || "").toLocaleString()], ["tokens out", (r) => (r.output_tokens || "").toLocaleString()], ["not counted", (r) => r.uncounted || ""]])}
+    <h3 style="margin-top:12px">What the language-model work would have cost through an API</h3>
+    ${table(Object.entries(a.prices).map(([k, p]) => ({ k, ...p })), [["model", (p) => p.name], ["tier", (p) => p.tier], ["$ / M in", (p) => p.input.toFixed(2)], ["$ / M out", (p) => p.output.toFixed(2)],
+      ["this computer's tokens", (p) => `$${a.usd[p.k].toFixed(2)}`], ["", (p) => p.note || ""]])}
+    <p class="muted" style="font-size:12px">${u.tokens.input.toLocaleString()} tokens in and ${u.tokens.output.toLocaleString()} out, counted by the local models. Prices read ${esc(a.prices_read)} from
+      <a href="${esc(a.prices["claude-sonnet-5-5"].source)}" target="_blank" rel="noopener">Anthropic's</a> and <a href="${esc(a.prices["gpt-5.6-terra"].source)}" target="_blank" rel="noopener">OpenAI's</a> pricing pages:
+      standard rates, no caching or batch discounts. On the Record never looks prices up itself.${a.uncounted_receipts ? ` ${a.uncounted_receipts} language-model runs from before token counting are not included.` : ""}</p>
+    <h3 style="margin-top:12px">Speeds, by software version</h3>
+    ${u.speeds.audio.length ? table(u.speeds.audio, [["stage", (s) => s.stage], ["setting", (s) => s.setting], ["× real time", (s) => s.times_real_time], ["software", (s) => s.software], ["graphics", (s) => s.gpu], ["runs", (s) => s.runs]]) : ""}
+    ${u.speeds.llm.length ? table(u.speeds.llm, [["stage", (s) => s.stage], ["model", (s) => s.model], ["generation tok/s", (s) => s.gen_tokens_per_s], ["prompt tok/s", (s) => s.prompt_tokens_per_s], ["llama.cpp", (s) => s.llama_build], ["graphics", (s) => s.gpu], ["runs", (s) => s.runs]])
+      : `<p class="muted">Language-model speeds appear after the next comment extraction or stress reader run (they were not recorded before Oct 23).</p>`}`);
+});
+
 async function refreshJobs() {
   let jobs = [];
   try { jobs = await api("/api/jobs"); } catch { return; }
   $("#jobs tbody").innerHTML = jobs.map((j) => {
-    const counts = j.cells ? Object.entries(j.cells).map(([k, v]) => `${v} ${STATUS_TEXT[k] || k}`).join(", ") : "";
+    const counts = (j.cells ? Object.entries(j.cells).map(([k, v]) => `${v} ${STATUS_TEXT[k] || k}`).join(", ") : "")
+      + (j.left_s != null && canLeft(j) ? `${j.cells ? " · " : ""}${leftText(j.left_s, j.status)}` : "");
     const took = secsBetween(j.started_utc, j.finished_utc || (j.status === "running" ? new Date().toISOString() : null));
     const canCancel = j.status === "queued" || j.status === "running";
     return `<tr data-run="${esc(j.run_id)}" class="${j.run_id === selectedJob ? "sel" : ""}">
@@ -963,7 +1002,7 @@ function transcribeForm(el, setup = null) {
       say("Queueing…");
       try {
         const r = await api("/api/transcribe", { json: { sources, with_comments: q("comments").checked, language: lang === "" ? null : lang === "detect" ? "" : lang } });
-        say(`Queued as <code>${esc(r.run_id)}</code>.`, "ok");
+        say(`Queued as <code>${esc(r.run_id)}</code>.${r.estimate && r.estimate.text ? ` Expected: ${esc(r.estimate.text)}.` : ""}`, "ok");
         followJob(r.run_id, (html, kind) => { if (document.body.contains(el)) say(html, kind); });
       } catch (err) { say(esc(err.message), "err"); }
     }
@@ -977,7 +1016,8 @@ async function followJob(runId, say) {
   const c = j.cells || {}, total = Object.values(c).reduce((a, b) => a + b, 0), fin = (c.ran || 0) + (c.cached || 0);
   if (j.status === "done") return say(`Done. <button class="small" data-open-run="${esc(runId)}">Open it in the Library</button>`, "ok");
   if (j.status === "failed" || j.status === "cancelled") return say(`It ${j.status === "failed" ? "stopped with a problem" : "was cancelled"}: the Jobs tab shows its log, and Results shows which step and why.`, "err");
-  say(j.status === "queued" ? `Queued as <code>${esc(runId)}</code>, waiting for the job ahead of it.` : `Working: ${fin} of ${total || "?"} steps done. The first run of a model takes longer while it loads.`, "ok");
+  const left = j.left_s ? ` (${leftText(j.left_s, j.status)})` : "";
+  say(j.status === "queued" ? `Queued as <code>${esc(runId)}</code>, waiting for the job ahead of it${left}.` : `Working: ${fin} of ${total || "?"} steps done${left}.`, "ok");
   setTimeout(() => followJob(runId, say), 3000);
 }
 async function openRun(runId) {

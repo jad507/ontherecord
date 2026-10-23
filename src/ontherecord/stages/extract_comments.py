@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 from ..llm import close_model, est_tokens, open_model, parse_json
+from ..usage import llm_metrics
 from .base import Check, Context, Item, Result, Setting, Stage
 
 POSITIONS = ["support", "oppose", "mixed", "neutral_or_question", "unclear"]
@@ -144,7 +145,7 @@ class ExtractComments(Stage):
         by_id = {b["block_id"]: b for b in blocks}
         budget = llm.n_ctx - settings["max_tokens"] - est_tokens(system) - 500
         wins = [w for w in windows(blocks, budget, settings["overlap"]) if w]  # an empty meeting sends nothing
-        raw, found, dropped = [], [], []
+        raw, calls, found, dropped = [], [], [], []
         for k, win in enumerate(wins):
             part = (f" (part {k + 1} of {len(wins)}, blocks {win[0]['block_id']}-{win[-1]['block_id']})"
                     if len(wins) > 1 else "")
@@ -153,7 +154,9 @@ class ExtractComments(Stage):
             r = llm.chat([{"role": "system", "content": system}, {"role": "user", "content": user}],
                          temperature=settings["temperature"], max_tokens=settings["max_tokens"], schema=SCHEMA)
             data = parse_json(r["text"])
-            raw.append({"window": [win[0]["block_id"], win[-1]["block_id"]], "parsed": data is not None, **r})
+            calls.append(r)  # speeds go to the metrics only: they differ every run, and the output must not
+            raw.append({"window": [win[0]["block_id"], win[-1]["block_id"]], "parsed": data is not None,
+                        **{k: v for k, v in r.items() if k not in ("prompt_n", "prompt_ms", "gen_n", "gen_ms")}})
             for c in (data or {}).get("public_comments", []):
                 ids = [i for i in c.get("block_ids", []) if i in by_id]
                 dropped += [i for i in c.get("block_ids", []) if i not in by_id]
@@ -180,8 +183,6 @@ class ExtractComments(Stage):
             w.writeheader()
             for r in rows:
                 w.writerow({**r, "block_ids": " ".join(map(str, r["block_ids"])), "speakers": " ".join(r["speakers"])})
-        tokens_in = sum(w.get("input_tokens") or 0 for w in raw)
-        tokens_out = sum(w.get("output_tokens") or 0 for w in raw)
         checks = [Check("parsed", "fail" if failed else "ok", f"{len(wins) - failed}/{len(wins)}",
                         f"{failed} of {len(wins)} answers did not parse" if failed else "every answer parsed"),
                   Check("comments", "ok", len(rows), f"{len(rows)} public comments") if blocks else
@@ -190,8 +191,7 @@ class ExtractComments(Stage):
             checks.append(Check("dropped_ids", "warn", len(dropped), f"model named {len(dropped)} block ids that do "
                                                                      "not exist"))
         return Result(files={"comments": "comments.json", "comments_csv": "comments.csv"}, checks=checks,
-                      metrics={"comments": len(rows), "windows": len(wins), "input_tokens": tokens_in,
-                               "output_tokens": tokens_out},
+                      metrics={"comments": len(rows), "windows": len(wins), **llm_metrics(calls)},
                       device="server", tools=state["tools"])
 
     def teardown(self, state) -> None:

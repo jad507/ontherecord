@@ -82,6 +82,19 @@ the machine's secrets file (`--save-token`), never in a recipe, a receipt or the
 check). A cell with `mixed` takes inputs that trace back to two different stages making the same artifact. Plan
 costs nothing, so check it before submitting anything long.
 
+## Time, tokens and cost
+
+```bash
+ontherecord usage --json         # compute hours, tokens, their API-price equivalent, speeds by software version
+ontherecord plan RECIPE --json   # includes "estimate": seconds, whether it fits a lunch break, a meeting, overnight
+```
+
+Estimates come from this machine's own receipts (seconds per minute of audio per stage and model, plus model
+loading), so they improve as it does more. Language-model stages record `input_tokens`, `output_tokens`,
+`llm_calls` and llama-server's `prompt_tokens_per_s` and `gen_tokens_per_s` in their metrics (never in their output
+files, which must stay byte-identical); the assistant logs its calls to `<workspace>/usage/assistant.jsonl`. API
+prices live in `usage.py` with the day they were read; the program never looks them up.
+
 ## Reading results
 
 `ontherecord show RUN_ID --json` prints the run record plus `problems`, a flat list of every warn or fail check and

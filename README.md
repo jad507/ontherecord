@@ -45,6 +45,7 @@ python -m venv .venv && .venv/bin/pip install -e ".[server]"      # Windows: .ve
 cp machine.example.yaml machine.yaml                               # then edit: workspace, tools, environments
 ontherecord doctor                                                 # what this machine has
 ontherecord transcribe meeting.mp4 --wait                          # speakers and a transcript, set for this machine
+ontherecord usage                                                  # compute hours, tokens, the API-price equivalent
 ontherecord plan recipes/jan29-left.yaml                           # what would be reused, what would run
 ontherecord run  recipes/jan29-left.yaml                           # Ctrl+C cancels cleanly
 ontherecord show                                                   # the last run, items x stages, with checks
@@ -67,7 +68,10 @@ The GUI has seven tabs:
   and camera, and a manifest opens in Excel. The card is cleared only when you ask, and only of files that still
   match their archived copies.
 - **Build a run**: a form for a recipe (sources, stages, every setting with its default and help), a plan of what
-  will be reused, submit and cancel.
+  will be reused and how long the rest will take on this computer, submit and cancel.
+- **Jobs**: the queue, with the time left for what is running, and a line on everything this computer has done:
+  hours of compute, tokens through local models, and what they would have cost at Claude Sonnet and GPT Terra
+  prices (details: per stage, every price tier, and speeds by software version).
 - **Results**: each run as a grid of items × stages; click a cell for its receipt and a preview of its output.
   **Compare with** lines two runs up: for each item and stage, whether the outputs are byte-identical, the headline
   number on each side (dB lost, speakers, words, comments), and which settings or inputs made the difference.

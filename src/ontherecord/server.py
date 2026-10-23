@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+import time
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -237,31 +238,60 @@ def create_app(cfg: MachineConfig, dispatch: bool = True, extra_hosts: tuple[str
         return {"name": r.name, "items": [i.as_dict() for i in r.items],
                 "stages": [{**s.info(), "settings": s.record_settings} for s in r.stages]}
 
+    held_rates: dict = {}
+
+    def rates():
+        """This machine's pace per stage (usage.Rates), read again at most once a minute."""
+        from .usage import Rates
+        if time.time() - held_rates.get("t", 0) > 60:
+            held_rates.update(t=time.time(), rates=Rates(cfg.workspace))
+        return held_rates["rates"]
+
     @app.post("/api/plan")
     def plan(body: RecipeIn):
+        from .usage import estimate_plan
         r = parse(body.text)
-        return {"stages": [s.info() for s in r.stages], "cells": Runner(r, cfg).plan()}
+        cells = Runner(r, cfg).plan()
+        return {"stages": [s.info() for s in r.stages], "cells": cells,
+                "estimate": estimate_plan(rates(), r, cells, cfg.tool("ffprobe"))}
 
     @app.post("/api/jobs")
     def submit(body: RecipeIn):
         parse(body.text)
         return {"run_id": queue.submit(body.text, recipes_dir)}
 
+    queued_estimates: dict = {}
+
     @app.get("/api/jobs")
     def jobs():
+        from .usage import estimate_run, estimate_text
         out = []
         for j in queue.list():
-            j.pop("recipe_text", None)
+            text = j.pop("recipe_text", None)
             rec = store.run_dir(j["run_id"]) / "run.json"
             if rec.is_file():
-                cells = json.loads(rec.read_text(encoding="utf-8"))["cells"]
+                record = json.loads(rec.read_text(encoding="utf-8"))
                 counts: dict[str, int] = {}
-                for row in cells.values():
+                for row in record["cells"].values():
                     for c in row.values():
                         counts[c["status"]] = counts.get(c["status"], 0) + 1
                 j["cells"] = counts
+                if j["status"] == "running" and record.get("stages"):
+                    j["left_s"] = estimate_run(rates(), record, cfg.tool("ffprobe"))["seconds"]
+            elif j["status"] == "queued" and j.get("backend") == "local" and text:
+                if j["run_id"] not in queued_estimates:  # a queued recipe does not change; plan it once
+                    try:
+                        queued_estimates[j["run_id"]] = estimate_text(cfg, text, Path(j["recipe_dir"]), rates())["seconds"]
+                    except Exception:
+                        queued_estimates[j["run_id"]] = None
+                j["left_s"] = queued_estimates[j["run_id"]]
             out.append(j)
         return out
+
+    @app.get("/api/usage")
+    def usage_summary():
+        from .usage import ledger
+        return ledger(cfg.workspace, queue.list(limit=100000))
 
     @app.post("/api/jobs/{run_id}/cancel")
     def cancel(run_id: str):
@@ -529,8 +559,10 @@ def create_app(cfg: MachineConfig, dispatch: bool = True, extra_hosts: tuple[str
             raise HTTPException(422, f"Download these models first (Setup, step 3): {', '.join(missing)}")
         text = presets.transcript_recipe([x if presets.is_link(x) else str(Path(x).expanduser()) for x in sources],
                                          body.with_comments, body.language)
+        from .usage import estimate_text
         try:
-            return {"run_id": queue.submit(text, recipes_dir), "recipe": text}
+            est = estimate_text(cfg, text, recipes_dir, rates())
+            return {"run_id": queue.submit(text, recipes_dir), "recipe": text, "estimate": est}
         except RecipeError as e:
             raise HTTPException(422, str(e))
 

@@ -71,9 +71,11 @@ class Server:
         choice = r["choices"][0]
         text = choice["message"].get("content") or ""
         finish = choice.get("finish_reason")
-        usage = r.get("usage", {})
+        usage, t = r.get("usage", {}), r.get("timings") or {}  # timings: llama-server's own, per call
         return {"text": text if finish == "stop" else "", "raw_text": text, "finish_reason": finish,
-                "input_tokens": usage.get("prompt_tokens"), "output_tokens": usage.get("completion_tokens")}
+                "input_tokens": usage.get("prompt_tokens"), "output_tokens": usage.get("completion_tokens"),
+                "prompt_n": t.get("prompt_n"), "prompt_ms": t.get("prompt_ms"), "gen_n": t.get("predicted_n"),
+                "gen_ms": t.get("predicted_ms")}
 
 
 class ManagedLlamaServer:

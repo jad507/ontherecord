@@ -62,6 +62,28 @@ defaults to match, CUDA builds above 12.4/12.8 where the machine allows, and a b
   machine (the three groups resolve in `uv sync --dry-run`), the CUDA 13.4 llama.cpp download (about 600 MB),
   Windows, a GTX 10-series card.
 
+## October 23: compute time, tokens and their API price (Jeff's Oct 22 item 3)
+
+- `usage.py` and `ontherecord usage` (and the Jobs tab's line and details): compute hours from the store's receipts
+  (each one a piece of work done once; a batch's model loading counted once), by stage, device and month; the
+  queue's busy time; tokens; their price at six API models (Claude Sonnet 5.5 and GPT-5.6 Terra headline; Opus 5.5
+  and Sol, Fable 5.1 and Astra too), read Oct 23 from Anthropic's and OpenAI's pricing pages and written in
+  `usage.py` with that date; speeds by software version (Whisper and pyannote as times real time; llama.cpp prompt
+  and generation tok/s).
+- Tokens now recorded by every language-model stage (stress_read too) with llama-server's own speeds (its `timings`,
+  checked in tools/server/server-common.cpp), in metrics only: timings vary per run, and comments.json must stay
+  byte-identical. The assistant logs each call to `<workspace>/usage/assistant.jsonl`.
+- Estimates from this machine's receipts (per minute of audio, per stage and model, plus model loading), in Jeff's
+  yardsticks (a coffee break, a lunch break, a long meeting, overnight): `plan` and its `--json`, `transcribe`, the
+  Build tab, the Transcribe form, the Jobs tab's time left, and the assistant's transcribe and jobs answers (their
+  outputs; no tool description changed, so no eval rerun).
+- shiro so far: 5.66 h since Oct 22; 468,867 tokens in and 39,879 out (comment extraction), $1.34 at Sonnet 5.5,
+  $1.42 at GPT-5.6 Terra. The 10 stress_read receipts from before Oct 23 carry no token counts and are reported as
+  not counted. Whisper large-v3 float16 runs at 7.5x real time and diarization at 58x on the 5070 Ti; this machine
+  takes about 9 minutes per hour of audio for a transcript.
+- Not done: tok/s has no data until the next language-model run; transcription is not priced at API speech-to-text
+  rates (only tokens are); hands_on_dl and AITranscribe work before On the Record is not in the ledger.
+
 ## October 23: security review (after a run of zero-days)
 
 What goes online: setup's downloads, the YouTube download stage, the token Check, and an assistant endpoint if one
@@ -102,7 +124,7 @@ change a model file. Keep the system's root certificates updated.
 
 ## Built and tested (shiro, Linux, RTX 5070 Ti)
 
-- 76 tests pass (`pytest`; 55 before Oct 23). Commits on `main`, none pushed.
+- 79 tests pass (`pytest`; 55 before Oct 23). Commits on `main`, none pushed.
 - The 11 meetings, three ways (left channel, averaged, as coded in May), each compared with hands_on_dl's files:
   see researchathon-notes.md.
 - WhiStress inside On the Record gives the poster's marks on every item (StressTest 218/218, StressPresso

@@ -9,6 +9,7 @@ import re
 from pathlib import Path
 
 from ..llm import close_model, open_model
+from ..usage import llm_metrics
 from .base import Check, Context, Item, Result, Setting, Stage
 
 CAPITALS = ('The speaker said: "{sentence}"\n{note}'
@@ -129,7 +130,7 @@ class StressRead(Stage):
         for line in inputs["stress_marks"].read_text(encoding="utf-8").splitlines():
             m = json.loads(line)
             marks[m["id"]] = m
-        rows = []
+        rows, calls = [], []
         for n, c in enumerate(manifest["items"], 1):
             stress = marks_for(settings["marks"], c, marks.get(c["id"]))
             a1, a2 = c["answers"]
@@ -141,11 +142,13 @@ class StressRead(Stage):
                                       answer_1=a1, answer_2=a2)
             r = llm.chat([{"role": "user", "content": prompt}], max_tokens=settings["max_tokens"], seed=c["seed"],
                          **sampling)
+            calls.append(r)
             text = r["raw_text"]  # an answer cut off at max_tokens still counts if it named an option
             pred, how = parse(text, c["answers"])
             if pred is None:
                 j = llm.chat([{"role": "user", "content": JUDGE.format(input_prompt=prompt, output=text)}],
                              max_tokens=256, seed=c["seed"], **sampling)
+                calls.append(j)
                 hit = re.search(r"\{.*\}", j["raw_text"], re.S)
                 try:
                     ans = json.loads(hit.group(0))["answer"] if hit else None
@@ -164,7 +167,7 @@ class StressRead(Stage):
         for x in rows:
             how[x["parse"]] = how.get(x["parse"], 0) + 1
         metrics = {"items": total, "correct": k, "accuracy": round(k / total, 3), "wald95": wald(k, total),
-                   "parse": how}
+                   "parse": how, **llm_metrics(calls)}
         blind = [x for x in rows if x["blind"]]
         if blind:
             kb = sum(x["correct"] for x in blind)
