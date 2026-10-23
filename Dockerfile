@@ -6,7 +6,8 @@ FROM python:3.12-slim-trixie
 
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
-COPY --from=ghcr.io/astral-sh/uv:0.11.25 /uv /usr/local/bin/uv
+# uv by digest as well as tag: a tag can be moved to other bytes, a digest cannot
+COPY --from=ghcr.io/astral-sh/uv:0.11.25@sha256:1e3808aa9023d0980e7c15b1fa7c1ac16ff35925780cf5c459858b2d693f01a9 /uv /usr/local/bin/uv
 
 WORKDIR /app
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never

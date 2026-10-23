@@ -17,9 +17,11 @@ tools:
   ffprobe: ffprobe
   llama_server: ~/src/llama.cpp-b11249-cuda12.8/llama-b11249/llama-server
 
-# yt-dlp needs a JavaScript runtime to download from YouTube (deno or bun).
+# yt-dlp needs a JavaScript runtime to download from YouTube: it runs JavaScript that YouTube serves. Use deno
+# (https://deno.com), which yt-dlp runs with no file, network or environment access. bun and node have no sandbox,
+# so that JavaScript would run with all of your account's permissions.
 js_runtime:
-  bun: ~/.bun/bin/bun
+  deno: ~/.deno/bin/deno
 
 # Model files named in recipes (e.g. extract_comments.model) are looked up here.
 models_root: ~/models

@@ -120,6 +120,32 @@ class Reply(io.BytesIO):
         return False
 
 
+def test_model_files_are_checked_against_the_pins(tmp_path, monkeypatch):
+    from ontherecord import model_hashes
+    m = bootstrap.MODELS["whistress"]
+    snap = tmp_path / "hub" / "models--slprl--WhiStress" / "snapshots" / m["rev"]
+    snap.mkdir(parents=True)
+    monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path / "hub"))
+    good = b"head weights"
+    (snap / "classifier.pt").write_bytes(b"tampered")
+    (snap / "additional_decoder_block.pt").write_bytes(good)
+    (snap / "metadata.json").write_bytes(b"{}")
+    import hashlib
+    monkeypatch.setitem(model_hashes.FILES, "whistress", {
+        "classifier.pt": "sha256:" + hashlib.sha256(good).hexdigest(),
+        "additional_decoder_block.pt": "sha256:" + hashlib.sha256(good).hexdigest(),
+        "metadata.json": "git:" + hashlib.sha1(b"blob 2\0{}").hexdigest(),
+        "missing.json": "git:0"})
+    problems = bootstrap.verify_model("whistress", tmp_path, delete=True)
+    assert problems == ["classifier.pt does not match its pinned sha256", "missing.json is missing"]
+    assert not (snap / "classifier.pt").exists() and (snap / "metadata.json").exists()  # only the bad file goes
+    gguf = tmp_path / bootstrap.MODELS["gemma-4-E2B"]["file"]
+    gguf.write_bytes(b"someone else's file")
+    assert bootstrap.verify_model("gemma-4-E2B", tmp_path, delete=True) == [f"{gguf.name} is not the pinned file"]
+    assert gguf.exists()  # reported, never deleted
+    assert set(model_hashes.FILES) == {n for n, x in bootstrap.MODELS.items() if x["kind"] == "hf"}
+
+
 def test_token_check(monkeypatch):
     def fake(answers):
         def urlopen(req, timeout=None):
@@ -144,8 +170,8 @@ def client(tmp_path, monkeypatch):
     from ontherecord.server import create_app
     monkeypatch.setattr(bootstrap, "hardware", lambda: machine(nvidia("RTX 4090", 24, "8.9", "12.8")))
     monkeypatch.delenv("HF_TOKEN", raising=False)  # so the token check below never goes online
-    cfg = MachineConfig(workspace=tmp_path / "ws", models_root=tmp_path / "models")
-    return TestClient(create_app(cfg, dispatch=False)), tmp_path
+    cfg = MachineConfig(workspace=tmp_path / "ws", models_root=tmp_path / "models", env_file=tmp_path / "secrets.env")
+    return TestClient(create_app(cfg, dispatch=False), base_url="http://127.0.0.1:8765"), tmp_path
 
 
 def test_transcribe_endpoint(client, monkeypatch):
@@ -172,3 +198,18 @@ def test_setup_endpoint_describes_the_machine(client):
     assert [m["name"] for m in d["models"] if m["recommended"]] == ["gemma-4-E4B", "gemma-4-26B", "whisper-large-v3",
                                                                     "pyannote-community-1"]
     assert c.post("/api/setup/check-token", json={}).status_code == 422  # no token anywhere: nothing to ask
+
+
+def test_only_requests_addressed_to_this_machine(client):
+    """DNS rebinding: a page on attacker.example re-pointed at 127.0.0.1 sends Host: attacker.example."""
+    c, tmp = client
+    assert c.get("/api/fs", params={"path": str(tmp)}).status_code == 200
+    assert c.get("http://localhost:8765/api/jobs").status_code == 200
+    assert c.get("http://[::1]:8765/api/jobs").status_code == 200
+    assert c.get("/api/fs", headers={"Host": "attacker.example:8765"}).status_code == 400
+    assert c.get("/api/fs", headers={"Host": "127.0.0.1.attacker.example"}).status_code == 400
+    body = {"token": "hf_aaaaaaaaaaaaaaaaaaaaaaaa"}
+    assert c.post("/api/setup/token", json=body, headers={"Origin": "http://attacker.example"}).status_code == 403
+    assert c.post("/api/setup/token", json=body, headers={"Origin": "http://127.0.0.1:8188"}).status_code == 403
+    assert c.post("/api/setup/token", json=body, headers={"Origin": "null"}).status_code == 403
+    assert c.post("/api/setup/check-token", json={}, headers={"Origin": "http://127.0.0.1:8765"}).status_code == 422

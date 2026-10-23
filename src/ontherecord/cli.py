@@ -466,6 +466,10 @@ def cmd_setup(args) -> int:
     print(f"llama.cpp : {acc['llama']['want']} ({acc['llama']['why']})")
     if acc["driver"]:
         print(f"driver    : {acc['driver']['level'].upper()}: {acc['driver']['text']}")
+    unsandboxed = sorted(set(config_from(args).js_runtime) & {"bun", "node"})
+    if unsandboxed and "deno" not in config_from(args).js_runtime:
+        print(f"YouTube   : WARNING: yt-dlp runs YouTube's JavaScript with {unsandboxed[0]}, which has no sandbox; deno "
+              "runs it with no file, network or environment access. Install deno and name it in js_runtime.")
     home = b.home_dir()
     cfg_path = Path(args.config_file) if args.config_file else user_config_dir() / "machine.yaml"
     if args.check:
@@ -503,6 +507,16 @@ def cmd_models(args) -> int:
     from . import bootstrap as b
     cfg = config_from(args)
     root = cfg.models_root or b.home_dir() / "models"
+    if args.action == "verify":
+        status = b.model_status(root)
+        bad = 0
+        for name in args.names or [n for n, ok in status.items() if ok]:
+            if name not in b.MODELS:
+                raise SystemExit(f"no model {name!r}; the catalog: {', '.join(b.MODELS)}")
+            problems = b.verify_model(name, root)
+            bad += bool(problems)
+            print(f"{name:22} {'matches its pinned digests' if not problems else '; '.join(problems)}")
+        return 1 if bad else 0
     if args.action == "get":
         token = args.token or os.environ.get("HF_TOKEN") or cfg.secret_env().get("HF_TOKEN")
         if args.token and args.save_token:
@@ -624,7 +638,8 @@ def main(argv: list[str] | None = None) -> int:
                    help="also offer the models this machine needs and put a shortcut on the desktop (the installers)")
     p.set_defaults(fn=cmd_setup)
     p = sub.add_parser("models", help="the model catalog; `models get NAME` downloads one")
-    p.add_argument("action", nargs="?", choices=["list", "get"], default="list")
+    p.add_argument("action", nargs="?", choices=["list", "get", "verify"], default="list",
+                   help="verify: hash downloaded models against the digests pinned in this package")
     p.add_argument("names", nargs="*")
     p.add_argument("--token", help="a Hugging Face token, for gated models")
     p.add_argument("--save-token", action="store_true", help="keep the token in the machine's secrets file")

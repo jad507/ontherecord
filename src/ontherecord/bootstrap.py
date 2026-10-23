@@ -5,9 +5,10 @@
     ontherecord models             the model catalog, what is downloaded, what fits this machine
     ontherecord models get NAME    download one (the speech models need a Hugging Face token; see below)
 
-Every download is pinned and checked: llama.cpp at build b11249 and the macOS ffmpeg at 9.0.2 against SHA-256
-digests written below (from the GitHub release's published digests), Windows and Linux ffmpeg against the digest GitHub publishes for the file, and each model at
-a fixed Hugging Face revision against the SHA-256 Hugging Face stores for it. A file that does not match is deleted.
+Every download is pinned and checked against SHA-256 digests written below: llama.cpp at build b11249, ffmpeg 8.1.3
+(Windows and Linux, BtbN's month-end build of Sep 30, 2026) and 9.0.2 (macOS), and each model file at a fixed
+Hugging Face revision. A file that does not match is deleted. Nothing is taken as "the latest": a project whose
+publishing account is taken over can replace its newest release, but not a digest written here.
 
 The hardware-fit rule is deliberately simple: which model sizes fit in GPU memory (or, on a Mac, in shared memory),
 with the CPU as the fallback. Which builds of PyTorch and llama.cpp suit the card and its driver is hwdetect.py's
@@ -74,10 +75,18 @@ MAC_FFMPEG = {  # ffmpeg 9.0.2 from ffmpeg.martin-riedl.de, with the digests it 
     ("x86_64", "ffmpeg"): ("download/macos/amd64/1789931006_9.0.2/ffmpeg.zip", "7c6b4125b191cbf773832dc51f424cf2b6bb7da43007d1e066f95909e47cacd4"),
     ("x86_64", "ffprobe"): ("download/macos/amd64/1789931006_9.0.2/ffprobe.zip", "2322438ed2f6319a691291b247d09c69dcaa3a982460d1f269a7e1af335cfdfd"),
 }
-BTBN = {"win": "ffmpeg-n8.1-latest-win64-lgpl-8.1.zip", "linux": "ffmpeg-n8.1-latest-linux64-lgpl-8.1.tar.xz"}
+BTBN_TAG = "autobuild-2026-09-30-13-08"  # BtbN keeps month-end builds; uploaded by its GitHub Actions, never replaced
+BTBN = {  # name, sha256, bytes (GitHub's digests for the release assets)
+    "win": ("ffmpeg-n8.1.3-9-g29e619e767-win64-lgpl-8.1.zip",
+            "4a7642b2264c03e8a0ce8a3825b933ee5580656f45695a086fe7e294045ffc0a", 170611883),
+    "linux": ("ffmpeg-n8.1.3-9-g29e619e767-linux64-lgpl-8.1.tar.xz",
+              "dfa863a00ca81f1bdf58a372b18cff4820f0017e55de32778de8ecd8ed92a02e", 137034436),
+}
 
 # The models On the Record offers, each pinned. gguf models are single files in models_root; hf models go to the
-# Hugging Face cache, where faster-whisper and pyannote look for them.
+# Hugging Face cache, where faster-whisper and pyannote look for them: only the files they load (`patterns`), each
+# checked against model_hashes.py.
+WHISPER_FILES = ["config.json", "preprocessor_config.json", "model.bin", "tokenizer.json", "vocabulary.*"]  # faster-whisper's own list
 MODELS = {
     "gemma-4-E2B": {"kind": "gguf", "repo": "google/gemma-4-E2B-it-qat-q4_0-gguf",
                     "rev": "675cff42a74c774d6cb76f76d8eacb49b48c9b93", "file": "gemma-4-E2B_q4_0-it.gguf",
@@ -94,16 +103,19 @@ MODELS = {
                     "about": "Gemma 4 26B-A4B, MXFP4 (the comment extraction's default file name; runs with part of "
                              "it on the CPU on a 16 GB GPU)"},
     "whisper-large-v3": {"kind": "hf", "repo": "Systran/faster-whisper-large-v3",
-                         "rev": "edaa852ec7e145841d8ffdb056a99866b5f0a478", "bytes": 3_100_000_000,
+                         "rev": "edaa852ec7e145841d8ffdb056a99866b5f0a478", "bytes": 3_100_000_000, "patterns": WHISPER_FILES,
                          "role": "speech", "needs_gb": 6, "about": "Whisper large-v3 for faster-whisper (transcription)"},
     # faster-whisper's name for it; Hugging Face redirects the repo to dropbox-dash/faster-whisper-large-v3-turbo
     "whisper-large-v3-turbo": {"kind": "hf", "repo": "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
                                "rev": "0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf", "bytes": 1_622_000_000,
+                               "patterns": WHISPER_FILES,
                                "role": "speech", "needs_gb": 2,
                                "about": "Whisper large-v3-turbo: several times faster, a little less accurate "
                                         "(transcription without an NVIDIA card)"},
     "pyannote-community-1": {"kind": "hf", "repo": "pyannote/speaker-diarization-community-1",
-                             "rev": "3533c8cf8e369892e6b79ff1bf80f7b0286a54ee", "bytes": 40_000_000, "gated": True,
+                             "rev": "3533c8cf8e369892e6b79ff1bf80f7b0286a54ee", "bytes": 34_000_000, "gated": True,
+                             "patterns": ["config.yaml", "embedding/pytorch_model.bin", "plda/*.npz",
+                                          "segmentation/pytorch_model.bin"],
                              "role": "speech", "needs_gb": 2,
                              "about": "pyannote's speaker diarization (who speaks when). Gated: accept its terms at "
                                       "https://huggingface.co/pyannote/speaker-diarization-community-1 first"},
@@ -313,16 +325,56 @@ def ensure_ffmpeg(bin_dir: Path, hw: dict, log=print) -> dict[str, str]:
             _extract(download(f"https://ffmpeg.martin-riedl.de/{path}", bin_dir / "downloads" / f"{n}.zip", sha,
                               log=log), target)
     else:
-        name = BTBN["win" if hw["os"] == "windows" else "linux"]
-        rel = json.loads(urllib.request.urlopen("https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/latest",
-                                                timeout=60).read())
-        asset = next(a for a in rel["assets"] if a["name"] == name)
-        log(f"ffmpeg 8.1: {name} ({asset['size'] / 1e6:.0f} MB)")
-        arc = download(asset["browser_download_url"], bin_dir / "downloads" / name,
-                       asset["digest"].split(":", 1)[1], asset["size"], log=log)
+        name, sha, size = BTBN["win" if hw["os"] == "windows" else "linux"]
+        log(f"ffmpeg 8.1.3: {name} ({size / 1e6:.0f} MB)")
+        arc = download(f"https://github.com/BtbN/FFmpeg-Builds/releases/download/{BTBN_TAG}/{name}",
+                       bin_dir / "downloads" / name, sha, size, log=log)
         _extract(arc, target)
         arc.unlink()
     return {n: str(next(target.rglob(n + exe))) for n in ("ffmpeg", "ffprobe")}
+
+
+def hf_cache() -> Path:
+    return Path(os.environ.get("HF_HUB_CACHE") or Path(os.environ.get("HF_HOME", Path.home() / ".cache" /
+                                                                      "huggingface")) / "hub")
+
+
+def _file_hash(path: Path, kind: str) -> str:
+    """sha256 of a file, or (kind 'git') git's blob id, which Hugging Face lists for files too small for LFS."""
+    h = hashlib.sha256() if kind == "sha256" else hashlib.sha1(b"blob %d\0" % path.stat().st_size)
+    with open(path, "rb") as fh:
+        while chunk := fh.read(1 << 22):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def verify_model(name: str, models_root: Path, snapshot: Path | None = None, delete: bool = False) -> list[str]:
+    """What is wrong with a downloaded model, checked against the digests written in this package; empty when it is
+    exactly the pinned files. With delete, a Hugging Face file that does not match is removed (so the next download
+    fetches it again); a GGUF file is only reported, as it may be one the person put there on purpose."""
+    m = MODELS[name]
+    if m["kind"] == "gguf":
+        f = models_root / m["file"]
+        if not f.is_file():
+            return [f"{m['file']} is not downloaded"]
+        return [] if _file_hash(f, "sha256") == m["sha256"] else [f"{m['file']} is not the pinned file"]
+    from .model_hashes import FILES
+    snap = snapshot or hf_cache() / ("models--" + m["repo"].replace("/", "--")) / "snapshots" / m["rev"]
+    if not snap.is_dir():
+        return [f"not downloaded at the pinned revision {m['rev'][:12]}"]
+    problems = []
+    for rel, want in FILES[name].items():
+        kind, digest = want.split(":", 1)
+        p = snap / rel
+        if not p.is_file():
+            problems.append(f"{rel} is missing")
+        elif _file_hash(p, kind) != digest:
+            problems.append(f"{rel} does not match its pinned {kind}")
+            if delete:
+                blob = p.resolve()
+                p.unlink()
+                blob.unlink(missing_ok=True)
+    return problems
 
 
 def model_status(models_root: Path) -> dict[str, str | bool]:
@@ -334,9 +386,7 @@ def model_status(models_root: Path) -> dict[str, str | bool]:
             out[name] = (f.is_file() and (f.stat().st_size == m["bytes"]
                                           or f"a different file by that name ({f.stat().st_size / 1e9:.1f} GB)"))
         else:
-            cache = Path(os.environ.get("HF_HUB_CACHE") or Path(os.environ.get("HF_HOME", Path.home() / ".cache" /
-                                                                                 "huggingface")) / "hub")
-            snap = cache / ("models--" + m["repo"].replace("/", "--")) / "snapshots"
+            snap = hf_cache() / ("models--" + m["repo"].replace("/", "--")) / "snapshots"
             out[name] = snap.is_dir() and any(snap.iterdir())
     return out
 
@@ -359,7 +409,11 @@ def get_model(name: str, models_root: Path, token: str | None = None, python: st
                         json.dumps(m.get("patterns"))], capture_output=True, text=True)
     if r.returncode != 0:
         raise RuntimeError(f"{name}: {r.stderr.strip()[-600:]}")
-    return r.stdout.strip().splitlines()[-1]
+    path = r.stdout.strip().splitlines()[-1]
+    bad = verify_model(name, models_root, Path(path), delete=True)
+    if bad:
+        raise OSError(f"{name}: {'; '.join(bad)}. The files that did not match were deleted; nothing was kept.")
+    return path
 
 
 # ---------------------------------------------------------------------------------------------- the config

@@ -126,6 +126,10 @@ If a stage's inputs trace back to different bytes of one artifact, its `same_sou
   can override them on purpose. A model or dataset must be fetched before a run needs it. Do not add a stage,
   library or page asset that fetches, checks for updates or reports usage.
 - The server binds to 127.0.0.1. Do not expose it on another interface: it runs jobs and serves files from the
-  workspace. From another machine, use an SSH tunnel (`ssh -L 8765:127.0.0.1:8765 HOST`).
+  workspace. From another machine, use an SSH tunnel (`ssh -L 8765:127.0.0.1:8765 HOST`). It answers only requests
+  addressed to 127.0.0.1, localhost or ::1 (DNS rebinding), and refuses a POST whose Origin is another page; keep
+  both checks when adding routes.
+- Every download is pinned by SHA-256 in the code (bootstrap.py, model_hashes.py, install/uv-pinned.sh), never
+  "the latest". To move a pin, take a release that is a few weeks old and write its digest.
 - Tests: `pytest`. `tests/stages_for_tests.py` has tiny model-free stages, loaded through `ONTHERECORD_STAGES`.
   The same variable adds your own stages (`name=module:Class;...`) without changing this package.

@@ -82,7 +82,18 @@ class IngestIn(BaseModel):
     kinds: list[str] | None = None
 
 
-def create_app(cfg: MachineConfig, dispatch: bool = True) -> FastAPI:
+LOOPBACK = {"127.0.0.1", "localhost", "::1"}
+
+
+def host_name(header: str) -> str:
+    """The name part of a Host header: '127.0.0.1:8765' -> '127.0.0.1', '[::1]:8765' -> '::1'."""
+    h = header.strip().lower()
+    if h.startswith("["):
+        return h[1:h.find("]")] if "]" in h else h
+    return h.rsplit(":", 1)[0] if h.count(":") == 1 else h
+
+
+def create_app(cfg: MachineConfig, dispatch: bool = True, extra_hosts: tuple[str, ...] = ()) -> FastAPI:
     from contextlib import asynccontextmanager
     held: dict = {}  # the assistant, started on first use
 
@@ -94,6 +105,21 @@ def create_app(cfg: MachineConfig, dispatch: bool = True) -> FastAPI:
             held["assistant"].stop()  # never leave its llama-server running
 
     app = FastAPI(title="On the Record", lifespan=lifespan)
+    allowed = LOOPBACK | {h.lower() for h in extra_hosts if h not in ("0.0.0.0", "::", "")}
+
+    @app.middleware("http")
+    async def only_from_this_machine(request, call_next):
+        """Answer only requests addressed to this machine by name. A web page whose own domain has been re-pointed at
+        127.0.0.1 (DNS rebinding) reaches this port as same-origin to the browser, but its requests carry its own name
+        in Host and are refused. Changes must also come from this GUI's own page: a request that names another origin
+        (another site, or another program's page on this machine) is refused. Scripts send no Origin and are fine."""
+        host = request.headers.get("host", "")
+        if host_name(host) not in allowed:
+            return PlainTextResponse("On the Record answers only at http://127.0.0.1 or http://localhost.", 400)
+        origin = request.headers.get("origin")
+        if request.method not in ("GET", "HEAD") and origin is not None and origin.lower() != f"http://{host.lower()}":
+            return PlainTextResponse("Refused: this request came from another web page.", 403)
+        return await call_next(request)
     store = Store(cfg.workspace)
     queue = JobQueue(cfg)
     library = Library(store)
@@ -595,4 +621,4 @@ def serve(cfg: MachineConfig, host: str = "127.0.0.1", port: int = 8765, open_br
     print(f"On the Record: {url}   (workspace {cfg.workspace})   Close this window to stop it.")
     if open_browser:
         threading.Timer(1.5, lambda: webbrowser.open(url)).start()
-    uvicorn.run(create_app(cfg), host=host, port=port, log_level="warning")
+    uvicorn.run(create_app(cfg, extra_hosts=(host,)), host=host, port=port, log_level="warning")

@@ -62,9 +62,47 @@ defaults to match, CUDA builds above 12.4/12.8 where the machine allows, and a b
   machine (the three groups resolve in `uv sync --dry-run`), the CUDA 13.4 llama.cpp download (about 600 MB),
   Windows, a GTX 10-series card.
 
+## October 23: security review (after a run of zero-days)
+
+What goes online: setup's downloads, the YouTube download stage, the token Check, and an assistant endpoint if one
+is configured. Everything else stays on 127.0.0.1. Found and fixed:
+
+- **DNS rebinding on the GUI server** (since the GUI existed): it answered any Host header, so a web page whose
+  domain was re-pointed at 127.0.0.1 could read transcripts, list folders, queue jobs (an `extract_comments`
+  endpoint can send a transcript anywhere), replace the token, or clear a card after an import. Now only requests
+  addressed to 127.0.0.1, localhost or ::1 (or an explicit `--host`) are answered, and a POST naming another origin
+  is refused. Tested with curl and in the browser.
+- **ffmpeg for Windows and Linux was "BtbN's latest"**, checked only against the digest the same release
+  published. Now BtbN's month-end build of Sep 30, 2026 (8.1.3, kept long-term, uploaded by its Actions bot and
+  never replaced), pinned by SHA-256.
+- **uv came from `curl https://astral.sh/uv/install.sh | sh`** (and `irm ... | iex`), always the newest. Now
+  `install/uv-pinned.sh` and the PowerShell equivalent fetch uv 0.11.25 (June 27) from its GitHub release and keep
+  it only if its SHA-256 matches (GitHub's digest, which uv's own installer also carries). uv's install.ps1 does not
+  check its download, and its install.sh skips the check on macOS (no `sha256sum`). The Dockerfile's uv image is
+  pinned by digest too. Tested on Linux, including a mismatch stopping the install; the PowerShell is untested.
+- **The speech models were pinned by revision only.** `model_hashes.py` now holds every file's hash (sha256, or
+  git's blob id for small files) at the pinned revision; setup checks each download and deletes a file that does
+  not match, and `ontherecord models verify` checks what is on disk. shiro's cached speech models and the Oct 22
+  Gemma files all match. Downloads are now only the files the programs load (faster-whisper's own list).
+- **yt-dlp with bun runs YouTube's JavaScript unsandboxed** (yt-dlp's bun provider: "No sandboxing options
+  available"; deno runs with no permissions). `machine.example.yaml` now names deno, and `setup --check` warns.
+  shiro still uses bun: deno is not installed.
+
+Checked and fine: no LiteLLM anywhere (lock or environments). Every PyPI release in the lock published since Sep 23
+either has PyPI provenance from its own GitHub repository, or comes from a project that has never published with
+provenance (no break in habit). The one break, SQLAlchemy 2.0.55, is the 2.0 branch's norm, and only used on Python
+below 3.11. Yesterday's re-lock added only PyTorch and NVIDIA packages, the newest being cuda-bindings 13.4.4 (Oct
+14, NVIDIA's provenance), reachable only without a PyTorch group. uv verifies every package against uv.lock's
+hashes, and managed Pythons against its own. llama-server binds 127.0.0.1; WhiStress loads with
+`weights_only=True`; no `shell=True`, `eval` or unsafe YAML; file writes from the GUI are slugged.
+
+Still depending on TLS: a forged certificate for huggingface.co (the post claims a CA's keys were cracked) would
+expose the Hugging Face token during a download or Check (it is read-only; revoke it if in doubt), but could not
+change a model file. Keep the system's root certificates updated.
+
 ## Built and tested (shiro, Linux, RTX 5070 Ti)
 
-- 74 tests pass (`pytest`; 55 before Oct 23). Commits on `main`, none pushed.
+- 76 tests pass (`pytest`; 55 before Oct 23). Commits on `main`, none pushed.
 - The 11 meetings, three ways (left channel, averaged, as coded in May), each compared with hands_on_dl's files:
   see researchathon-notes.md.
 - WhiStress inside On the Record gives the poster's marks on every item (StressTest 218/218, StressPresso
