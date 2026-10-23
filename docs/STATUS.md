@@ -49,11 +49,13 @@ catalog, installers (uv) and a Docker image, and one-job-at-a-time with `onthere
    --kl-divergence`). Unsloth's page reports a mean KL of 0.0017 (theirs) against 0.051 (plain Q4_0) for E2B. Their
    stated cause: llama.cpp's Q4_0 conversion recomputes the block scales instead of keeping QAT's. That claim is
    not yet checked independently.
-2. **Where did the paper's 26B file come from?** shiro's `gemma-4-26B-A4B-it-MXFP4_MOE.gguf` (15,419,239,968
-   bytes, sha256 `9d46651aecae9701e7ec7c9dd48418f1d7bdecbb0adc41199eff79684c48ed6c`, quantized_by Unsloth) is in
-   none of the 142 revisions of `unsloth/gemma-4-26B-A4B-it-GGUF`. That repo replaced its MXFP4_MOE file under the
-   same name six times between April and July 2026. The catalog pins the July file (16.55 GB), so a fresh install
-   gets a different model than the paper used. `ontherecord models` already says "a different file by that name".
+2. **The paper's 26B file: found.** shiro's `gemma-4-26B-A4B-it-MXFP4_MOE.gguf` (15,419,239,968 bytes, sha256
+   `9d46651aecae9701e7ec7c9dd48418f1d7bdecbb0adc41199eff79684c48ed6c`, quantized_by Unsloth) came from
+   `noctrex/gemma-4-26B-A4B-it-MXFP4_MOE-GGUF`, downloaded Aug 3, 2026 (Chrome's download record). Hugging Face's
+   SHA-256 for that file at main (`ba1408cd8891f9d3af97595ec838779ae8d0ec9b`, May 4, 2026) matches. It is in none
+   of the 142 revisions of `unsloth/gemma-4-26B-A4B-it-GGUF`, whose MXFP4_MOE file changed six times between April
+   and July. The catalog still pins Unsloth's July file (16.55 GB), so a fresh install gets a different model than
+   the paper used. Open question for Jeff: pin noctrex's file instead?
 
 ## Next, in order
 
@@ -74,7 +76,10 @@ catalog, installers (uv) and a Docker image, and one-job-at-a-time with `onthere
 - Stop the GUI with `kill <serve pid>`. TaskStop kills the whole process tree. Jobs survive either way now, but the
   assistant's llama-server would not be stopped cleanly.
 - shiro's system CUDA hides library-path bugs. Test installs in Docker or a fresh machine.
-- `HF_HUB_OFFLINE=1` is set for stages on shiro (`stage_env`). A model or dataset must be in the cache before a run.
+- Stages run offline everywhere now (`config.LOCAL_ONLY`, Oct 22): `HF_HUB_OFFLINE=1`, and pyannote's usage
+  metrics off. pyannote 4.0 sends them to otel.pyannote.ai by default (version, session id, audio duration,
+  speaker counts), and `HF_HUB_OFFLINE` does not stop it, so shiro's diarization runs before Oct 22 sent them.
+  A model or dataset must be in the cache before a run.
 - On Oct 22, WhiStress was run outside the queue for about 7 minutes while the left-channel run diarized. That broke
   the rule above. Outputs are unaffected (the extraction started after it and used its usual offload), but two
   diarization timings in that run are inflated.

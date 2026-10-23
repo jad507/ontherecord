@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from ontherecord.config import MachineConfig
+from ontherecord.config import MachineConfig, load_config
 from ontherecord.recipe import RecipeError, recipe_from_text
 from ontherecord.runner import Runner
 
@@ -198,3 +198,12 @@ def test_malformed_yaml_is_a_recipe_error(ws):
         recipe_from_text("name: x\nsource:\n  urls: [https://youtube.com/watch?v=abc, x]\n", ws)
     with pytest.raises(RecipeError, match="key: value"):
         recipe_from_text("- just a list\n", ws)
+
+
+def test_stages_run_offline_unless_the_machine_says_otherwise(tmp_path):
+    assert MachineConfig().stage_env == {"HF_HUB_OFFLINE": "1", "HF_HUB_DISABLE_TELEMETRY": "1",
+                                         "PYANNOTE_METRICS_ENABLED": "0"}
+    f = tmp_path / "machine.yaml"
+    f.write_text("stage_env:\n  HF_HUB_OFFLINE: 0\n", encoding="utf-8")
+    env = load_config(f).stage_env
+    assert env["HF_HUB_OFFLINE"] == "0" and env["PYANNOTE_METRICS_ENABLED"] == "0"

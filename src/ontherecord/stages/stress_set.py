@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import os
 import zipfile
 import zlib
 from pathlib import Path
@@ -103,6 +104,11 @@ class StressSet(Stage):
         try:  # a set already downloaded needs no network (and works with HF_HUB_OFFLINE)
             snap = Path(snapshot_download(repo, repo_type="dataset", revision=rev, local_files_only=True))
         except Exception:
+            if os.environ.get("HF_HUB_OFFLINE") == "1":  # stages run offline (config.LOCAL_ONLY)
+                raise FileNotFoundError(
+                    f"{repo} at {rev} is not downloaded, and stages do not fetch anything. Fetch it once, on purpose: "
+                    f"hf download {repo} --repo-type dataset --revision {rev} "
+                    f"--include 'data/{settings['split']}-*.parquet'") from None
             snap = Path(snapshot_download(repo, repo_type="dataset", revision=rev,
                                           allow_patterns=[f"data/{settings['split']}-*.parquet"]))
         files = sorted((snap / "data").glob(f"{settings['split']}-*.parquet"))

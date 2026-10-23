@@ -108,6 +108,11 @@ If a stage's inputs trace back to different bytes of one artifact, its `same_sou
   vouch for their bytes. To redo something, change a setting or the input, and the runner computes a new entry.
 - `machine.yaml` is per machine and gitignored. Secrets go in the file named by its `env_file`. They reach stages
   as environment variables and are never written to receipts; do not print them either.
+- Nothing talks to the network unless a person asked for it: `setup`, `models get`, the download stage (yt-dlp)
+  and an `assistant.endpoint` a person configured. Stages run with `HF_HUB_OFFLINE=1`,
+  `HF_HUB_DISABLE_TELEMETRY=1` and `PYANNOTE_METRICS_ENABLED=0` (`config.LOCAL_ONLY`); a machine's `stage_env`
+  can override them on purpose. A model or dataset must be fetched before a run needs it. Do not add a stage,
+  library or page asset that fetches, checks for updates or reports usage.
 - The server binds to 127.0.0.1. Do not expose it on another interface: it runs jobs and serves files from the
   workspace. From another machine, use an SSH tunnel (`ssh -L 8765:127.0.0.1:8765 HOST`).
 - Tests: `pytest`. `tests/stages_for_tests.py` has tiny model-free stages, loaded through `ONTHERECORD_STAGES`.

@@ -41,6 +41,12 @@ def _path(value) -> Path | None:
     return Path(os.path.expandvars(os.path.expanduser(str(value)))) if value else None
 
 
+# Stages talk to nobody: models and datasets come from `ontherecord models get` or setup, never as a side effect of a
+# run, and pyannote's usage metrics (on by default, sent to otel.pyannote.ai) stay off. A machine's stage_env can
+# override any of these on purpose. The download stage is the exception by design: yt-dlp is not affected by them.
+LOCAL_ONLY = {"HF_HUB_OFFLINE": "1", "HF_HUB_DISABLE_TELEMETRY": "1", "PYANNOTE_METRICS_ENABLED": "0"}
+
+
 @dataclass
 class MachineConfig:
     source: Path | None = None
@@ -50,7 +56,7 @@ class MachineConfig:
     js_runtime: dict[str, str] = field(default_factory=dict)  # yt-dlp's YouTube challenge solver, {bun: path}
     models_root: Path | None = None
     env_file: Path | None = None                              # KEY=VALUE lines passed to stage processes
-    stage_env: dict[str, str] = field(default_factory=dict)   # plain environment settings for stage processes
+    stage_env: dict[str, str] = field(default_factory=lambda: dict(LOCAL_ONLY))  # plain environment for stages
     cookies_file: Path | None = None                          # yt-dlp cookies; never recorded
     archive: Path = field(default_factory=lambda: Path.home() / "OnTheRecord-Archive")  # where imports are filed
     assistant: dict = field(default_factory=dict)             # model, gpu_layers, context, or endpoint
@@ -107,7 +113,7 @@ def load_config(path: str | Path | None = None) -> MachineConfig:
     cfg.js_runtime = {k: str(_path(v)) for k, v in (raw.get("js_runtime") or {}).items()}
     cfg.models_root = _path(raw.get("models_root"))
     cfg.env_file = _path(raw.get("env_file"))
-    cfg.stage_env = {k: str(v) for k, v in (raw.get("stage_env") or {}).items()}
+    cfg.stage_env = {**LOCAL_ONLY, **{k: str(v) for k, v in (raw.get("stage_env") or {}).items()}}
     cfg.cookies_file = _path(raw.get("cookies_file"))
     if raw.get("archive"):
         cfg.archive = _path(raw["archive"])
