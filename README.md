@@ -53,7 +53,7 @@ ontherecord receipt RUN_ID ITEM STAGE                              # everything 
 ontherecord serve                                                  # the GUI at http://127.0.0.1:8765
 ```
 
-The GUI has seven tabs:
+The GUI has eight tabs:
 
 - **Library**: every recording, opened in a player beside its transcript. The player plays the audio the
   transcript was made from, with a timeline of who spoke when; click a line to jump there. Search across every
@@ -64,6 +64,10 @@ The GUI has seven tabs:
 - **Ask**: plain-English questions ("where did people talk about the data center?", "transcribe this link") to a
   small model running on this computer. It answers from the transcripts, gives times you can click, and shows what
   it looked at. Anything that starts work waits for you to press a button.
+- **Review**: check the machine's work by hand, one item per screen with its audio and its context: whether a
+  block is a public comment, who a speaker label is, what a line really says, which word is stressed. The order is
+  shuffled (stopping early leaves a random sample), the machine's answer appears only after yours, every answer is
+  saved as you give it, and **Score** says how often the machine agreed, on the answers given before seeing it.
 - **Import**: copy a camera card or drive into an archive. Every copy is verified by hash, files are named by date
   and camera, and a manifest opens in Excel. The card is cleared only when you ask, and only of files that still
   match their archived copies.

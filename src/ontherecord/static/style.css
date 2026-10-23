@@ -218,3 +218,21 @@ table.folders code { word-break: break-all; }
 .player-tools { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 4px 0; font-size: 12px; }
 .usage-line { font-size: 13px; color: var(--muted); margin: 0 0 10px; }
 .usage-line b { color: var(--fg); }
+/* review: checking by hand */
+.review { max-width: 1000px; }
+.rv-bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.rv-bar .grow { flex: 1; }
+.rv-progress { height: 4px; background: var(--idle-bg); border-radius: 2px; margin: 6px 0 10px; }
+.rv-progress div { height: 100%; background: var(--accent); border-radius: 2px; }
+.rv-blk { border-left: 3px solid var(--line); padding: 6px 10px; margin: 6px 0; color: var(--muted); font-size: 14px; }
+.rv-blk .who { font-size: 12px; margin-bottom: 2px; }
+.rv-target { border-color: var(--accent); background: var(--run-bg); color: var(--fg); font-size: 16px; }
+.rv-opts { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 10px 0; position: sticky; bottom: 0;
+  background: var(--bg); padding: 8px 0; border-top: 1px solid var(--line); }  /* in reach however long the context */
+.rv-opt { font-size: 15px; padding: 8px 16px; background: var(--panel); color: var(--fg); border-color: var(--line); }
+.rv-opt.sel, .rv-word.sel { border-color: var(--accent); background: var(--run-bg); }
+.rv-words { display: flex; gap: 6px; flex-wrap: wrap; margin: 10px 0; }
+.rv-word { font-size: 18px; padding: 6px 12px; background: var(--panel); color: var(--fg); border-color: var(--line); font-weight: 500; }
+.rv-opt kbd, .rv-word kbd, .rv-blk kbd, label kbd { font: 11px var(--mono); color: var(--muted); border: 1px solid var(--line); border-radius: 3px;
+  padding: 0 4px; margin-left: 6px; }
+#rv-text { font: 15px var(--sans); }

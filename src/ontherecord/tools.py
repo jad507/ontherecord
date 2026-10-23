@@ -74,7 +74,8 @@ class Toolbox:
                 Tool("public_comments", self.public_comments),
                 Tool("transcribe", self.transcribe, confirm=True), Tool("jobs_status", self.jobs_status),
                 Tool("cancel_job", self.cancel_job, confirm=True), Tool("devices", self.devices),
-                Tool("import_device", self.import_device, confirm=True)]
+                Tool("import_device", self.import_device, confirm=True), Tool("review_progress", self.review_progress),
+                Tool("make_review", self.make_review, confirm=True)]
 
     def call(self, name: str, args: dict) -> str:
         tool = next((t for t in self.tools() if t.name == name), None)
@@ -243,6 +244,52 @@ class Toolbox:
         return (f"Started job {run_id} for {len(links)} link(s)"
                 + (f"; {waiting} job(s) ahead of it" if waiting else "") + ". Its progress is on the Jobs tab."
                 + (f" It should take {est}." if est else ""))
+
+    # ------------------------------------------------------------------ reviews (checking by hand)
+    def review_progress(self) -> str:
+        """How far each hand-checking set (a review) has got: items answered, how many are left and the time that
+        takes at the person's pace, and how often the machine agreed with the person so far."""
+        from . import reviews
+        sets = reviews.list_sets(self.cfg.workspace)
+        if not sets:
+            return "No reviews yet. make_review starts one."
+        lines = []
+        for p in sets[:MAX_LINES]:
+            left = (f"; {p['left']} left, about {round(p['left_s'] / 60)} min at your pace" if p["left_s"] and p["left"]
+                    else f"; {p['left']} left" if p["left"] else "; finished")
+            agree = (f"; {p['machine_label']} agreed with you on {p['agreement']:.0%} so far"
+                     if p["agreement"] is not None else "")
+            lines.append(f"- {p['name']}: {p['answered']} of {p['items']} answered{left}{agree} (#review/{p['id']})")
+        return "\n".join(lines)
+
+    def make_review(self, kind: str, recording_id: str = "", how_many: int = 100) -> str:
+        """Make a set of items for the person to check by hand in the Review tab. kind is "comments" (is each
+        sampled speech block a public comment?), "speakers" (who is each speaker label?) or "transcript" (correct
+        sampled lines). recording_id can be the id or a date like "January 29"; leave it empty to use every
+        recording in the newest run that has what the kind needs."""
+        from . import reviews
+        need = {"comments": "extract_comments", "speakers": "align", "transcript": "transcribe"}.get(kind)
+        if not need:
+            return 'kind must be "comments", "speakers" or "transcript".'
+        recs = self.library.recordings()
+        if recording_id:
+            r = self._match(recording_id)
+            if not r:
+                return f"No single recording matches {recording_id!r}. Use find_recordings to get its id."
+            recs = [r]
+        views = sorted((v for r in recs for v in r["views"] if need in v.get("has", []) or (
+            need == "transcribe" and "align" in v.get("has", []))), key=lambda v: v["created_utc"], reverse=True)
+        if not views:
+            return f"No run has what a {kind} review needs ({need}). Transcribe{' with comments' if kind == 'comments' else ''} first."
+        run = views[0]["run_id"]
+        try:
+            spec = reviews.from_run(self.cfg.workspace, run, kind, how_many,
+                                    items=[recs[0]["id"]] if recording_id else None)
+            sid = reviews.create(self.cfg.workspace, spec)
+        except ValueError as e:
+            return str(e)
+        return (f"Made the review \"{spec['name']}\" with {len(spec['items'])} items. It is in the Review tab "
+                f"(#review/{sid}).")
 
     def jobs_status(self) -> str:
         """What is running, waiting, or finished recently, with how far along each one is."""

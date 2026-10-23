@@ -44,6 +44,7 @@ function showTab(name) {
   if (name === "import") refreshImport();
   if (name === "ask") { $("#ask-input").focus(); refreshAskBusy(); }
   if (name === "setup") refreshSetup();
+  if (name === "review" && !RV) reviewList();
   LS.set("tab", name);
 }
 document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
@@ -804,6 +805,8 @@ const linkify = (text) => esc(text).replace(/\(?#play\/([^\s/)]+)\/([^\s/)]+)\/(
 window.addEventListener("hashchange", () => {
   const m = location.hash.match(/^#play\/([^/]+)\/([^/]+)(?:\/([\d.]+))?/);
   if (m) openPlayer(decodeURIComponent(m[1]), decodeURIComponent(m[2]), m[3] ? +m[3] : null);
+  const r = location.hash.match(/^#review\/([a-z0-9-]+)/);
+  if (r && (!RV || RV.id !== r[1])) { RV = { id: r[1] }; rvItem = null; showTab("review"); refreshReview(r[1]); }
 });
 
 function addBubble(cls, html) {
@@ -1056,6 +1059,191 @@ function showAddRecording() {
 }
 $("#lib-add").addEventListener("click", showAddRecording);
 
+// ---------------------------------------------------------------- review: checking by hand (reviews.py)
+// One item per screen, as the gold coding and stress labelling pages did: blind (the machine's answer comes only
+// after yours, unless you ask for it first, and that is recorded), keys for everything, every answer saved the
+// moment it is given, Back to change one. The server never sends what a set keeps hidden.
+let RV = null, rvItem = null, rvK = 2, rvShown = 0, rvPrev = null, rvWords = new Set();
+const rvBy = () => LS.get("reviewer") || "me";
+const RV_KINDS = { comments: ["Public comments", "is each sampled speech block a public comment? (needs comment extraction)"],
+  speakers: ["Speakers", "who is each speaker label? (needs speakers)"], transcript: ["Transcript lines", "correct sampled lines (needs a transcript)"] };
+
+async function refreshReview(id = null) {
+  id = id ?? RV?.id ?? null;
+  if (!id) return reviewList();
+  const fresh = !RV || RV.id !== id;
+  RV = await api(`/api/reviews/${encodeURIComponent(id)}`).catch(() => null);
+  if (!RV) return reviewList();
+  if (fresh) { rvItem = null; rvPrev = null; }
+  history.replaceState(null, "", `#review/${RV.id}`);
+  reviewShow(rvItem ? rvItem.id : rvNextOpen(null));
+}
+function rvNextOpen(after) {
+  const i = after == null ? -1 : RV.order.indexOf(after);
+  return RV.order.slice(i + 1).concat(RV.order.slice(0, i + 1)).find((x) => !RV.answers[x]) ?? null;
+}
+
+async function reviewList() {
+  RV = null; rvItem = null;
+  if (location.hash.startsWith("#review")) history.replaceState(null, "", location.pathname);
+  const [sets, runs] = await Promise.all([api("/api/reviews").catch(() => []), api("/api/runs").catch(() => [])]);
+  const done = runs.filter((r) => r.status === "done").sort((a, b) => (b.created_utc || "").localeCompare(a.created_utc || ""));
+  $("#review").innerHTML = `<p class="lede">Check the machine's work by hand. Each review is a set of items, one per screen, in a shuffled order
+      (so stopping early still leaves a random sample). Where the machine has an answer, you see it only after giving yours.</p>
+    ${sets.length ? table(sets, [["review", (p) => p.name], ["kind", (p) => p.kind], ["answered", (p) => `${p.answered} / ${p.items}`],
+      ["left", (p) => (p.left ? (p.left_s ? `about ${fmtDur(Math.round(p.left_s / 60) * 60).replace(/ 0 s$/, "")}` : `${p.left} items`) : "done")],
+      ["machine agreed", (p) => (p.agreement == null ? "" : `${Math.round(p.agreement * 100)}% (${p.machine_label})`)], ["", () => ""]])
+      : `<p class="muted">No reviews yet.</p>`}
+    <div class="imp-card" style="margin-top:12px"><h3>New review</h3>
+      <div class="row" style="display:flex;gap:10px;flex-wrap:wrap;align-items:end">
+        <label>What to check <select id="rv-kind">${Object.entries(RV_KINDS).map(([k, [t, d]]) => `<option value="${k}" title="${esc(d)}">${t}: ${esc(d)}</option>`).join("")}</select></label>
+        <label>From the run <select id="rv-run">${done.map((r) => `<option value="${esc(r.run_id)}">${esc(r.name)} · ${esc(fmtTime(r.created_utc))} · ${r.items} item${r.items > 1 ? "s" : ""}</option>`).join("")}</select></label>
+        <label style="width:110px">How many <input id="rv-sample" type="number" value="100" min="1"></label>
+        <label><input type="checkbox" id="rv-blind"> transcript: write from scratch</label>
+        <button id="rv-make">Make it</button></div>
+      <div id="rv-msg" class="msg"></div>
+      <div class="muted" style="font-size:12px">Speakers makes one item per speaker label per recording. From the command line: <code>ontherecord review new RUN --kind comments</code>;
+        sets made by another project: <code>ontherecord review create FILE.json</code> (see scripts/).</div></div>`;
+  const rows = document.querySelectorAll("#review table.data tr");
+  sets.forEach((p, i) => { rows[i + 1].lastElementChild.innerHTML = `<button class="small" data-rv-open="${esc(p.id)}">${p.answered ? "Continue" : "Start"}</button>
+    <a class="small" href="/api/reviews/${esc(p.id)}/export.csv">CSV</a>`; });
+}
+
+async function reviewShow(id) {
+  const n = Object.keys(RV.answers).length, pace = RV.seconds_per_item;
+  const left = RV.items - n;
+  const head = `<div class="rv-bar"><a href="#" data-rv-list="1">← All reviews</a><b>${esc(RV.name)}</b>
+      <button class="small secondary" data-rv-step="-1">← Back</button><button class="small secondary" data-rv-step="1">Next →</button>
+      <button class="small secondary" data-rv-todo="1">Next unanswered</button>
+      <span class="muted">${n} / ${RV.items} answered${left && pace ? ` · about ${fmtDur(Math.round(pace * left / 60) * 60).replace(/ 0 s$/, "")} left at your pace` : ""}</span>
+      <span class="grow"></span><label class="muted" style="margin:0">answering as <input id="rv-by" value="${esc(rvBy())}" style="width:90px;display:inline-block;margin:0"></label>
+      <button class="small secondary" data-rv-score="1">Score</button></div>
+    <div class="rv-progress"><div style="width:${(100 * n / RV.items).toFixed(1)}%"></div></div>`;
+  const prev = rvPrev ? `<div class="since">Item ${esc(rvPrev.label)}: you said <b>${esc(rvPrev.mine)}</b>${rvPrev.machine != null ? `; ${esc(RV.machine_label)} said <b>${esc(rvPrev.machine)}</b>${rvPrev.mine === rvPrev.machine ? " ✓" : ""}` : ""}.
+      <a href="#" data-rv-goto="${esc(rvPrev.id)}">Back to change it</a></div>` : "";
+  if (id == null) {
+    $("#review").innerHTML = head + prev + `<p class="lede" style="margin-top:16px">Every item has an answer. Thank you. Score shows how the machine did; CSV exports the answers.</p>`;
+    return;
+  }
+  const it = await api(`/api/reviews/${encodeURIComponent(RV.id)}/items/${encodeURIComponent(id)}?k=${rvK}`);
+  rvItem = it; rvShown = Date.now();
+  const a = RV.answers[id] || {}, ans = RV.answer, opts = ans.options || [];
+  rvWords = new Set(Array.isArray(a.value) ? a.value : []);
+  const keyOf = (o) => (o.key ? `<kbd>${esc(o.key.toUpperCase())}</kbd>` : "");
+  const optBtns = opts.flatMap((o) => (o.reasons && o.reasons.length ? o.reasons.map((r) => ({ ...o, reason: r.value, label: `${o.label}: ${r.label}`, key: r.key })) : [o]))
+    .map((o) => `<button class="rv-opt ${a.value === o.value && (!o.reason || a.reason === o.reason) ? "sel" : ""}" data-rv-ans="${esc(o.value)}" data-rv-reason="${esc(o.reason || "")}">${esc(o.label)}${keyOf(o)}</button>`).join("");
+  const words = ans.kind === "words" ? `<div class="rv-words">${it.words.map((w, i) => `<button class="rv-word ${rvWords.has(i) ? "sel" : ""}" data-rv-word="${i}">${esc(w)}${i < 10 ? `<kbd>${(i + 1) % 10}</kbd>` : ""}</button>`).join("")}
+      <button class="rv-opt" data-rv-save-words="1">Save these words<kbd>⏎</kbd></button></div>` : "";
+  const text = ans.kind === "text" ? `<textarea id="rv-text" rows="3" placeholder="Type the answer">${esc(typeof a.value === "string" && !opts.some((o) => o.value === a.value) ? a.value : it.prefill || "")}</textarea>
+      <button class="rv-opt" data-rv-save-text="1">Save<kbd>Ctrl ⏎</kbd></button>` : "";
+  const flags = (ans.flags || []).map((f) => `<label class="muted" style="margin:0"><input type="checkbox" data-rv-flag="${esc(f.name)}" ${(a.flags || {})[f.name] ? "checked" : ""}> ${esc(f.label)}${keyOf(f)}</label>`).join(" ");
+  const ctx = (it.context && it.context.length ? it.context : []).filter((c) => c.offset !== 0);
+  const target = `<div class="rv-blk rv-target"><div class="who">TARGET${it.speaker ? ` · ${esc(it.speaker)}` : ""}${it.start != null ? ` · ${hm(it.start)}–${hm(it.end)}` : ""}</div>${esc(it.text || "") || '<span class="muted">(write what you hear)</span>'}</div>`;
+  const blk = (c) => `<div class="rv-blk"><div class="who">${esc(c.speaker || "")}${c.start != null ? ` · ${hm(c.start)}–${hm(c.end)}` : ""}</div>${esc(c.text || "")}</div>`;
+  $("#review").innerHTML = head + prev + `
+    <details class="rv-q"><summary>The question, and the keys</summary><p>${esc(RV.question)}</p>
+      <p class="muted">Keys: the letter on each button answers and moves on${ans.kind === "words" ? "; 1–9 and 0 pick words, Enter saves them" : ""}${ans.kind === "text" ? "; Ctrl+Enter saves the text" : ""};
+        P plays or pauses; M shows more context; / jumps to the note (Esc leaves it); ←/→ move without answering.</p></details>
+    <div class="meta" style="margin:8px 0">${esc(it.title || "")}${it.link ? ` · <a href="${esc(it.link)}" target="_blank" rel="noopener">source at ${hm(it.start)}</a>` : ""}
+      ${a.value !== undefined ? ` · <b>answered: ${esc(rvShowValue(a.value, it))}</b>` : ""}</div>
+    <div class="row" style="display:flex;gap:8px;align-items:center">${it.has_clip ? `<audio id="rv-aud" controls preload="auto" src="/api/reviews/${encodeURIComponent(RV.id)}/clip/${encodeURIComponent(id)}"></audio>` : `<span class="muted">no audio for this item</span>`}
+      ${it.more_context ? `<button class="small secondary" data-rv-more="1">More context<kbd>M</kbd></button>` : ""}</div>
+    ${ctx.filter((c) => c.offset < 0).map(blk).join("")}${target}${ctx.filter((c) => c.offset > 0).map(blk).join("")}
+    ${words}${text}<div class="rv-opts">${ans.kind === "choice" ? optBtns : `<span class="muted">or:</span> ${optBtns}`}</div>
+    <div style="display:flex;gap:14px;flex-wrap:wrap;margin:6px 0">${flags}
+      ${it.has_machine && RV.reveal === "after" ? `<label class="muted" style="margin:0"><input type="checkbox" id="rv-peek"> show ${esc(RV.machine_label)}'s answer first (recorded as seen)</label>` : ""}</div>
+    <div id="rv-peeked" class="msg"></div>
+    <textarea id="rv-note" rows="1" placeholder="Note: anything that made this hard (optional)">${esc(a.note || "")}</textarea>
+    <div id="rv-saved" class="msg"></div>`;
+  history.replaceState(null, "", `#review/${RV.id}/${encodeURIComponent(id)}`);
+  if (ans.kind === "text") $("#rv-text").focus();
+}
+function rvShowValue(v, it) {
+  if (Array.isArray(v)) return v.map((i) => (it && it.words ? it.words[i] : i)).join(" ");
+  return typeof v === "number" && it && it.words ? it.words[v] : String(v);
+}
+async function rvAnswer(value, reason = "") {
+  const flags = Object.fromEntries([...document.querySelectorAll("[data-rv-flag]")].map((x) => [x.dataset.rvFlag, x.checked]));
+  const body = { item: rvItem.id, value, reason, flags, note: $("#rv-note").value, seconds: Math.round((Date.now() - rvShown) / 1000), by: rvBy() };
+  try {
+    const r = await api(`/api/reviews/${encodeURIComponent(RV.id)}/answer`, { json: body });
+    rvPrev = { id: rvItem.id, label: RV.order.indexOf(rvItem.id) + 1, mine: rvShowValue(r.value, rvItem),
+      machine: r.machine === undefined ? null : rvShowValue(r.machine, rvItem) };
+    const at = rvItem.id;
+    RV = await api(`/api/reviews/${encodeURIComponent(RV.id)}`);
+    rvK = 2;
+    reviewShow(rvNextOpen(at) ?? RV.order[RV.order.indexOf(at) + 1] ?? null);  // all answered: walk on, revising
+  } catch (err) { $("#rv-saved").textContent = `Not saved: ${err.message}`; $("#rv-saved").className = "msg err"; }
+}
+function rvStep(d) { const i = RV.order.indexOf(rvItem?.id) + d; if (i >= 0 && i < RV.order.length) { rvK = 2; reviewShow(RV.order[i]); } }
+
+$("#review").addEventListener("click", async (e) => {
+  const t = e.target.closest("[data-rv-open],[data-rv-list],[data-rv-step],[data-rv-todo],[data-rv-ans],[data-rv-word],[data-rv-save-words],[data-rv-save-text],[data-rv-more],[data-rv-goto],[data-rv-score],#rv-make");
+  if (!t) return;
+  if (t.tagName === "A") e.preventDefault();
+  const d = t.dataset;
+  if (d.rvOpen) return refreshReview(d.rvOpen);
+  if (d.rvList) return reviewList();
+  if (d.rvStep) return rvStep(+d.rvStep);
+  if (d.rvTodo) return reviewShow(rvNextOpen(rvItem?.id ?? null));
+  if (d.rvGoto) { rvPrev = null; return reviewShow(d.rvGoto); }
+  if (d.rvMore) { rvK = Math.min(rvK + 4, 12); return reviewShow(rvItem.id); }
+  if (d.rvAns !== undefined) return rvAnswer(d.rvAns, d.rvReason || "");
+  if (d.rvWord !== undefined) { const i = +d.rvWord; rvWords.has(i) ? rvWords.delete(i) : rvWords.add(i); t.classList.toggle("sel"); return; }
+  if (d.rvSaveWords) return rvWords.size ? rvAnswer([...rvWords]) : ($("#rv-saved").textContent = "Pick a word first, or one of the other answers.");
+  if (d.rvSaveText) return rvAnswer($("#rv-text").value);
+  if (d.rvScore) {
+    const s = await api(`/api/reviews/${encodeURIComponent(RV.id)}/score`);
+    const main = [["agreement", "agreed"], ["kappa", "Cohen's kappa"], ["exact", "exact match"], ["wer", "word error rate"]].filter(([k]) => s[k] != null);
+    return openModal(`<h3>How ${esc(s.machine_label || "the machine")} did on ${esc(RV.name)}</h3>
+      <p>${s.scored} item${s.scored === 1 ? "" : "s"} scored of ${s.answered} answered${s.blind ? ", each on the first answer given before seeing the machine's" : ""}.
+        ${main.map(([k, l]) => `${l}: <b>${k === "kappa" ? s[k] : Math.round(s[k] * 1000) / 10 + "%"}</b>`).join(" · ") || "Nothing to compare yet (this set has no machine answers, or none are answered)."}</p>
+      ${s.confusion ? table(Object.entries(s.confusion).map(([m, row]) => ({ m, ...row })), [["machine said", (r) => r.m], ...[...new Set(Object.values(s.confusion).flatMap(Object.keys))].sort().map((h) => [`you: ${h}`, (r) => r[h] || 0])]) : ""}
+      <p class="muted" style="font-size:12px">Set ${esc((s.set_sha256 || "").slice(0, 16))}, answers ${esc((s.answers_sha256 || "–").slice(0, 16))} (sha256): what a write-up cites with these numbers.
+        Unsure and other answers marked as not scored are left out. <code>ontherecord review score ${esc(RV.id)}</code> prints the same.</p>`);
+  }
+  if (t.id === "rv-make") {
+    const m = $("#rv-msg");
+    m.textContent = "Making it…"; m.className = "msg";
+    try {
+      const p = await api("/api/reviews", { json: { run: $("#rv-run").value, kind: $("#rv-kind").value, sample: +$("#rv-sample").value || 100, blind: $("#rv-blind").checked } });
+      refreshReview(p.id);
+    } catch (err) { m.textContent = err.message; m.className = "msg err"; }
+  }
+});
+$("#review").addEventListener("change", async (e) => {
+  if (e.target.id === "rv-by") LS.set("reviewer", e.target.value.trim() || "me");
+  if (e.target.id === "rv-peek" && e.target.checked) {
+    const r = await api(`/api/reviews/${encodeURIComponent(RV.id)}/reveal/${encodeURIComponent(rvItem.id)}?by=${encodeURIComponent(rvBy())}`, { method: "POST" }).catch((err) => ({ error: err.message }));
+    $("#rv-peeked").textContent = r.error || `${RV.machine_label} said: ${rvShowValue(r.machine, rvItem)}`;
+    e.target.disabled = true;
+  }
+});
+document.addEventListener("keydown", (e) => {
+  if (!$("#tab-review").classList.contains("active") || !RV || !rvItem || !$("#modal").hidden) return;
+  const typing = ["TEXTAREA", "INPUT", "SELECT"].includes(e.target.tagName);
+  if (typing) {
+    if (e.key === "Escape") e.target.blur();
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && e.target.id === "rv-text") { e.preventDefault(); rvAnswer(e.target.value); }
+    return;
+  }
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const k = e.key.toLowerCase(), ans = RV.answer;
+  if (e.key === "ArrowLeft") return rvStep(-1);
+  if (e.key === "ArrowRight") return rvStep(1);
+  if (k === "p") { const a = $("#rv-aud"); if (a) a.paused ? a.play() : a.pause(); return; }
+  if (k === "m") { const b = document.querySelector("[data-rv-more]"); if (b) b.click(); return; }
+  if (e.key === "/") { e.preventDefault(); $("#rv-note").focus(); return; }
+  if (ans.kind === "words" && /^[0-9]$/.test(e.key)) { const b = document.querySelector(`[data-rv-word="${(+e.key + 9) % 10}"]`); if (b) b.click(); return; }
+  if (ans.kind === "words" && e.key === "Enter") { document.querySelector("[data-rv-save-words]").click(); return; }
+  const flag = (ans.flags || []).find((f) => f.key === k);
+  if (flag) { const x = document.querySelector(`[data-rv-flag="${flag.name}"]`); x.checked = !x.checked; return; }
+  for (const o of ans.options || []) {
+    if (o.reasons && o.reasons.length) { const r = o.reasons.find((r) => r.key === k); if (r) return rvAnswer(o.value, r.value); }
+    else if (o.key === k) return rvAnswer(o.value);
+  }
+});
+
 // ---------------------------------------------------------------- comparing two runs
 async function showCompare(a, b) {
   const c = await api(`/api/compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`).catch((err) => ({ error: err.message }));
@@ -1115,8 +1303,10 @@ $("#grid").addEventListener("click", (e) => {
   // Pick up where the person left off: a link to a moment wins, then the last recording (paused where it was),
   // then the last tab. Until the Library has a recording, Setup's guide comes first.
   const m = location.hash.match(/^#play\/([^/]+)\/([^/]+)(?:\/([\d.]+))?/);
+  const rv = location.hash.match(/^#review\/([a-z0-9-]+)(?:\/(.+))?/);
   const last = LS.json("play");
   if (m) openPlayer(decodeURIComponent(m[1]), decodeURIComponent(m[2]), m[3] ? +m[3] : null);
+  else if (rv) { RV = { id: rv[1] }; rvItem = rv[2] ? { id: decodeURIComponent(rv[2]) } : null; showTab("review"); refreshReview(rv[1]); }
   else {
     if (last && LIB.some((r) => r.id === last.item)) openPlayer(last.run, last.item, last.t || null, { switchTab: false, autoplay: false });
     else if (!LIB.length) showAddRecording();

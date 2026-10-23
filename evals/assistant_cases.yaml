@@ -60,3 +60,11 @@
 - ask: How many people spoke during public comment in the November meetings?
   call: public_comments
   args: {meetings: november}
+- ask: How far along am I with the labeling?
+  call: review_progress
+- ask: I want to check the public comments from the January 29 meeting by hand.
+  call: make_review
+  args: {kind: comments}
+- ask: Help me put names to the speakers in the January 29 meeting.
+  call: make_review
+  args: {kind: speakers}

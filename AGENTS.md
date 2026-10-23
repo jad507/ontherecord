@@ -82,6 +82,25 @@ the machine's secrets file (`--save-token`), never in a recipe, a receipt or the
 check). A cell with `mixed` takes inputs that trace back to two different stages making the same artifact. Plan
 costs nothing, so check it before submitting anything long.
 
+## Reviews: checking by hand
+
+```bash
+ontherecord review new RUN --kind comments|speakers|transcript   # a set from a finished run
+ontherecord review create SET.json                              # a set another project wrote (scripts/ has two)
+ontherecord review list --json                                  # every set: answered, left, time left, agreement
+ontherecord review score SET --json                             # the machine against the person, with sha256s
+ontherecord review export SET --out answers.csv                 # latest answers, machine answers, hidden fields
+```
+
+A review is a set of items a person answers one per screen in the Review tab (`reviews.py`): choice, words or text.
+Blind by construction: the page never gets an item's `hidden` fields, and gets its `machine` answer only after the
+person answers (or never, `reveal: never`); each answer records `machine_seen`, and scores use the first unseen
+answer. Do not answer review items yourself, and do not show a person the machine's answer some other way: the
+answers are the yardstick the machine is scored against. The assistant's `review_progress` reports, and
+`make_review` proposes a new set (the person confirms). `scripts/review_gold_sample.py` and
+`scripts/review_stress_clips.py` turn hands_on_dl's gold sample and AITranscribe's stress clips into sets; the
+stress one reproduces score_corpus_labels.py's blind WhiStress figure (47 of 49).
+
 ## Time, tokens and cost
 
 ```bash

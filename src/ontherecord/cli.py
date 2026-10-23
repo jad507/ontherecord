@@ -8,6 +8,7 @@
     ontherecord receipt RUN_ID ITEM STAGE  the full receipt behind one cell
     ontherecord transcribe FILE|LINK...    queue speaker-labelled transcripts, set for this machine (no recipe needed)
     ontherecord usage                      compute hours, tokens and their API-price equivalent, speeds by version
+    ontherecord review new RUN --kind K    a set to check by hand (comments, speakers, transcript); list, score, export
 
   The job queue (the same one the GUI uses; one job at a time per workspace):
     ontherecord submit RECIPE [--wait]     queue a run; prints its run id
@@ -268,6 +269,70 @@ def cmd_transcribe(args) -> int:
         print("note: nothing is running this workspace's queue, so the job will wait. Start `ontherecord serve` "
               "(the GUI) or `ontherecord dispatch`.", file=sys.stderr)
     return _wait(q, run_id, args.json) if args.wait else 0
+
+
+def cmd_review(args) -> int:
+    """Hand-checking sets (reviews.py): make one from a run or a JSON file, see how far each has got, score the
+    machine against the answers, export them."""
+    import csv
+    from . import reviews
+    cfg = config_from(args)
+    ws, a, target = cfg.workspace, args.action, args.target
+    if a in ("new", "create", "status", "score", "export") and not target:
+        raise SystemExit(f"review {a} needs a {'run id' if a == 'new' else 'JSON file' if a == 'create' else 'set id'}")
+    try:
+        if a == "new":
+            spec = reviews.from_run(ws, target, args.kind, args.sample, name=args.name, blind=args.blind)
+        elif a == "create":
+            spec = json.loads(Path(target).read_text(encoding="utf-8"))
+        if a in ("new", "create"):
+            sid = reviews.create(ws, spec)
+            p = reviews.progress(ws, sid)
+            print(json.dumps(p) if args.json else f"{sid}: {p['items']} items. Answer them in the GUI's Review tab "
+                  f"(http://127.0.0.1:8765/#review/{sid}).")
+            return 0
+        if a == "list":
+            sets = reviews.list_sets(ws)
+            if args.json:
+                print(json.dumps(sets, indent=1))
+                return 0
+            for p in sets:
+                left = f", about {round(p['left_s'] / 60)} min left" if p["left_s"] and p["left"] else ""
+                agree = f", agrees {p['agreement']:.0%} with {p['machine_label']}" if p["agreement"] is not None else ""
+                print(f"{p['id']:44} {p['kind']:7} {p['answered']:4}/{p['items']:<4}{left}{agree}")
+            if not sets:
+                print("No reviews yet: `ontherecord review new RUN --kind comments|speakers|transcript`.")
+            return 0
+        s = reviews.load(ws, target)
+        log = reviews.rows(ws, target)
+        if a == "status":
+            print(json.dumps(reviews.progress(ws, target), indent=1))
+        elif a == "score":
+            sc = {**reviews.score(s, log), **reviews.fingerprints(ws, target)}
+            if args.json:
+                print(json.dumps(sc, indent=1))
+            else:
+                main = {k: sc[k] for k in ("agreement", "kappa", "exact", "wer") if sc.get(k) is not None}
+                print(f"{target}: {sc['scored']} items scored of {sc['answered']} answered"
+                      f"{' (blind answers only)' if sc['blind'] else ''}; {sc['machine_label']}: "
+                      + (", ".join(f"{k} {v}" for k, v in main.items()) or "nothing to compare yet"))
+                for m, row in (sc.get("confusion") or {}).items():
+                    print(f"  machine {m:>8}: " + ", ".join(f"person {h} {n}" for h, n in sorted(row.items())))
+                print(f"  set {sc['set_sha256'][:16]}, answers {(sc['answers_sha256'] or '-')[:16]}")
+        elif a == "export":
+            rows = reviews.export_rows(ws, target)
+            fh = open(args.out, "w", newline="", encoding="utf-8") if args.out else sys.stdout
+            w = csv.DictWriter(fh, list(rows[0]) if rows else ["item"])
+            w.writeheader()
+            w.writerows(rows)
+            if args.out:
+                fh.close()
+                print(f"{len(rows)} answers -> {args.out}", file=sys.stderr)
+        return 0
+    except KeyError as e:
+        raise SystemExit(f"no review {e}")
+    except (ValueError, FileNotFoundError) as e:
+        raise SystemExit(str(e))
 
 
 def cmd_usage(args) -> int:
@@ -634,6 +699,16 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--wait", action="store_true", help="then follow it until it ends (exit code as for wait)")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_transcribe)
+    p = sub.add_parser("review", help="sets of items to check by hand, and how the machine scores against them")
+    p.add_argument("action", choices=["list", "new", "create", "status", "score", "export"])
+    p.add_argument("target", nargs="?", help="new: a run id; create: a JSON set file; status/score/export: a set id")
+    p.add_argument("--kind", choices=["comments", "speakers", "transcript"], default="comments")
+    p.add_argument("--sample", type=int, default=100, help="how many items (comments, transcript)")
+    p.add_argument("--name")
+    p.add_argument("--blind", action="store_true", help="transcript: write lines from scratch instead of correcting")
+    p.add_argument("--out", help="export: a CSV file (default: standard output)")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(fn=cmd_review)
     p = sub.add_parser("usage", help="compute hours, tokens and their API-price equivalent, and speeds by version")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_usage)

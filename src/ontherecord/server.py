@@ -70,6 +70,24 @@ class RevealIn(BaseModel):
     which: str
 
 
+class ReviewNewIn(BaseModel):
+    run: str
+    kind: str                     # comments, speakers, transcript
+    sample: int = 100
+    name: str | None = None
+    blind: bool = False
+
+
+class ReviewAnswerIn(BaseModel):
+    item: str
+    value: str | list[int]
+    reason: str = ""
+    flags: dict = {}
+    note: str = ""
+    seconds: float | None = None
+    by: str = "me"
+
+
 class ConfirmIn(BaseModel):
     tool: str
     args: dict = {}
@@ -287,6 +305,96 @@ def create_app(cfg: MachineConfig, dispatch: bool = True, extra_hosts: tuple[str
                 j["left_s"] = queued_estimates[j["run_id"]]
             out.append(j)
         return out
+
+    # ------------------------------------------------------------------ reviews (hand labels; see reviews.py)
+    def review_or_404(set_id: str) -> dict:
+        from . import reviews
+        try:
+            return reviews.load(cfg.workspace, set_id)
+        except KeyError:
+            raise HTTPException(404, f"no review {set_id}")
+
+    @app.get("/api/reviews")
+    def reviews_list():
+        from . import reviews
+        return reviews.list_sets(cfg.workspace)
+
+    @app.post("/api/reviews")
+    def reviews_new(body: ReviewNewIn):
+        from . import reviews
+        try:
+            spec = reviews.from_run(store.root, body.run, body.kind, body.sample, name=body.name, blind=body.blind)
+            return reviews.progress(cfg.workspace, reviews.create(cfg.workspace, spec))
+        except (ValueError, FileNotFoundError) as e:
+            raise HTTPException(422, str(e))
+
+    @app.get("/api/reviews/{set_id}")
+    def review_state(set_id: str):
+        """The set as the labelling page sees it: question, answer kind, order, and the answers so far (values
+        only). Machine answers and hidden fields stay on the server."""
+        from . import reviews
+        s = review_or_404(set_id)
+        return {**reviews.progress(cfg.workspace, set_id), "question": s["question"], "answer": s["answer"],
+                "order": s["order"], "prefill": s.get("prefill", False),
+                "answers": {k: {f: r[f] for f in ("value", "reason", "flags", "note", "machine_seen", "by")}
+                            for k, r in reviews.latest(reviews.rows(cfg.workspace, set_id)).items()}}
+
+    @app.get("/api/reviews/{set_id}/items/{item_id:path}")
+    def review_item(set_id: str, item_id: str, k: int = 2):
+        from . import reviews
+        s = review_or_404(set_id)
+        if item_id not in s["by_id"]:
+            raise HTTPException(404, item_id)
+        return reviews.public_item(s, item_id, max(0, min(k, 12)))
+
+    @app.get("/api/reviews/{set_id}/clip/{item_id:path}")
+    def review_clip(set_id: str, item_id: str):
+        from . import reviews
+        review_or_404(set_id)
+        p = reviews.clip(cfg.workspace, set_id, item_id, cfg.tool("ffmpeg"))
+        if p is None:
+            raise HTTPException(404, "no audio for this item")
+        return FileResponse(p)
+
+    @app.post("/api/reviews/{set_id}/answer")
+    def review_answer(set_id: str, body: ReviewAnswerIn):
+        from . import reviews
+        review_or_404(set_id)
+        try:
+            return reviews.answer(cfg.workspace, set_id, body.item, body.value, reason=body.reason, flags=body.flags,
+                                  note=body.note, seconds=body.seconds, by=body.by)
+        except (KeyError, ValueError) as e:
+            raise HTTPException(422, str(e).strip("'\""))
+
+    @app.post("/api/reviews/{set_id}/reveal/{item_id:path}")
+    def review_reveal(set_id: str, item_id: str, by: str = "me"):
+        from . import reviews
+        review_or_404(set_id)
+        try:
+            return {"machine": reviews.reveal(cfg.workspace, set_id, item_id, by)}
+        except KeyError as e:
+            raise HTTPException(404, str(e).strip("'\""))
+
+    @app.get("/api/reviews/{set_id}/export.csv")
+    def review_export(set_id: str):
+        import csv
+        import io
+        from . import reviews
+        review_or_404(set_id)
+        rows = reviews.export_rows(cfg.workspace, set_id)
+        buf = io.StringIO()
+        fields = list(rows[0]) if rows else ["item"]
+        w = csv.DictWriter(buf, fields)
+        w.writeheader()
+        w.writerows(rows)
+        return PlainTextResponse(buf.getvalue(), media_type="text/csv",
+                                 headers={"Content-Disposition": f'attachment; filename="{set_id}.csv"'})
+
+    @app.get("/api/reviews/{set_id}/score")
+    def review_score(set_id: str):
+        from . import reviews
+        s = review_or_404(set_id)
+        return {**reviews.score(s, reviews.rows(cfg.workspace, set_id)), **reviews.fingerprints(cfg.workspace, set_id)}
 
     @app.get("/api/usage")
     def usage_summary():

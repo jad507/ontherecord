@@ -62,6 +62,30 @@ defaults to match, CUDA builds above 12.4/12.8 where the machine allows, and a b
   machine (the three groups resolve in `uv sync --dry-run`), the CUDA 13.4 llama.cpp download (about 600 MB),
   Windows, a GTX 10-series card.
 
+## October 23: reviews, checking by hand (generalized from the gold and stress labelling pages)
+
+- `reviews.py`, the Review tab, `ontherecord review`, and two assistant tools (`review_progress`, and
+  `make_review`, which waits for the person's button). A set is items answered one per screen: choice (gold's
+  yes / no / unsure, with flags such as fused), words (which are stressed) or text (a corrected line, a speaker's
+  name), each kind with extra options that may need a reason (bad: cut off). What the two pages did, every set
+  does: blind by construction (hidden fields never served; the machine's answer after answering, or first and
+  recorded as seen, or never), one seeded shuffle, an append-only log with seconds per answer (time left at the
+  person's pace), the latest answer winning, audio cut on first play, keys for everything, Back to revise.
+  Scores: agreement and Cohen's kappa with a confusion table, exact match and top-word hit, word error rate; on the
+  first unseen answers; with the set's and answers' sha256 for citing.
+- Sets from runs: comments (blocks half from those the extractor flagged, the gold question, the extractor's
+  answer revealed after), speakers (one item per label per recording, answered with a name), transcript (lines to
+  correct, scored as Whisper's WER; `--blind` writes them from scratch).
+- `scripts/review_gold_sample.py` made the gold sample's 180 blocks a set in shiro's workspace (no model output in
+  it at all; `--write-back` fills gold_coding.csv for hands_on_dl's analysis). `scripts/review_stress_clips.py`
+  made the stress clips a set (170 after exclusions) with the 172 labels so far; its blind score, WhiStress 47 of
+  49 (95.9%), is score_corpus_labels.py's own. Neither original page is changed or retired.
+- Not done: the assistant eval with the two new tools (three cases added to evals/assistant_cases.yaml; run it
+  before relying on the small model to pick them); several annotators' agreement with each other (each answer
+  records `by`, so the data is there); the stress page's video-level Review mode (keep/exclude per video, with
+  re-cutting), which stays in AITranscribe. The GUI listens on 127.0.0.1 only, so labelling from another machine
+  goes through `ssh -L 8765:127.0.0.1:8765 shiro`, where the old pages listened on the tailnet address.
+
 ## October 23: compute time, tokens and their API price (Jeff's Oct 22 item 3)
 
 - `usage.py` and `ontherecord usage` (and the Jobs tab's line and details): compute hours from the store's receipts
@@ -124,7 +148,7 @@ change a model file. Keep the system's root certificates updated.
 
 ## Built and tested (shiro, Linux, RTX 5070 Ti)
 
-- 79 tests pass (`pytest`; 55 before Oct 23). Commits on `main`, none pushed.
+- 85 tests pass (`pytest`; 55 before Oct 23). Commits on `main`, none pushed.
 - The 11 meetings, three ways (left channel, averaged, as coded in May), each compared with hands_on_dl's files:
   see researchathon-notes.md.
 - WhiStress inside On the Record gives the poster's marks on every item (StressTest 218/218, StressPresso
