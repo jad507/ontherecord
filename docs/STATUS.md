@@ -1,22 +1,27 @@
-# Status and handoff (October 22, 2026)
+# Status and handoff (October 23, 2026)
 
-Where On the Record stands, what was decided and why, what is waiting on Jeff, and what to do next. Written at the
-end of the long first build session, for whoever picks it up next (a person or an agent). The Research-a-thon
-write-up notes, with every number and its source, are in [researchathon-notes.md](researchathon-notes.md).
+Where On the Record stands, what was decided and why, what is waiting on Jeff, and what to do next, for whoever
+picks it up next (a person or an agent). Written Oct 22 at the end of the first build session and brought up to
+date at the end of Oct 23's. The Research-a-thon write-up notes, with every number and its source, are in
+[researchathon-notes.md](researchathon-notes.md). The write-up (three pages) is due Dec 1, 11:59 pm ET.
 
 ## Against the original four-week plan
+
+We are at about week 3.5: Jeff's additions took roughly a week of the plan's time.
 
 | Week | Planned | State |
 |---|---|---|
 | 1 | Runner, store, receipts, checks, the council pipeline stages, from the command line | Done |
 | 2 | The job queue and the GUI | Done |
-| 3 | Compare-two-runs view; stress pipelines (StressTest, StressPresso, WildStressTest with clip and human-label stages, WhiStress to text-reader cascade); scoring against labels | Compare done. Stress set, WhiStress and reader stages done, scored against the labels inside each stage. The reader runs are queued. Not done: WildStressTest's clip-cutting and labelling stages (the finished items.json is loaded instead), the classical detectors (Praat, wavelet), and the audio-LLM listening arm. |
-| 4 | Slurm backend; Windows and macOS tests; backfill receipts for existing hands_on_dl outputs; more checks | Not started. Installers for all three systems are written; only Linux is tested. |
+| 3 | Compare-two-runs view; stress pipelines (StressTest, StressPresso, WildStressTest with clip and human-label stages, WhiStress to text-reader cascade); scoring against labels | Compare done. Stress set, WhiStress and reader stages done, scored against the labels inside each stage; the stress-benchmarks run is done but not yet read against the poster. Human labels: the Review tab (Oct 23) generalizes the gold and stress labelling pages, and the stress clips with their labels are a set there. Not done: WildStressTest's clip-cutting stage (the finished items.json is loaded instead), the classical detectors (Praat, wavelet), and the audio-LLM listening arm. |
+| 4 | Slurm backend; Windows and macOS tests; backfill receipts for existing hands_on_dl outputs; more checks | Not started. Installers for all three systems are written (now picking the PyTorch and llama.cpp builds per machine, uv pinned); only Linux is tested. |
 | 5-6 | About 10 days of writing | Notes started |
 
-Added since the plan, at Jeff's request: Library and player, Import from cameras and drives (verified copies,
-catalog, clearing the card), the Ask assistant with confirm buttons, the MCP server, the Setup tab and model
-catalog, installers (uv) and a Docker image, and one-job-at-a-time with `ontherecord exclusive`.
+Added since the plan, at Jeff's request: Library and player; Import from cameras and drives (verified copies,
+catalog, clearing the card); the Ask assistant with confirm buttons; the MCP server; the Setup tab and model
+catalog; installers (uv) and a Docker image; one-job-at-a-time with `ontherecord exclusive`. On Oct 23: the guided
+first run with machine detection and per-machine builds, picking up where you left off, transcript files, a
+security review, compute time / tokens / API-price equivalents with time estimates, and reviews (checking by hand).
 
 ## October 23: first run, machine detection, picking up where you left off
 
@@ -62,52 +67,6 @@ defaults to match, CUDA builds above 12.4/12.8 where the machine allows, and a b
   machine (the three groups resolve in `uv sync --dry-run`), the CUDA 13.4 llama.cpp download (about 600 MB),
   Windows, a GTX 10-series card.
 
-## October 23: reviews, checking by hand (generalized from the gold and stress labelling pages)
-
-- `reviews.py`, the Review tab, `ontherecord review`, and two assistant tools (`review_progress`, and
-  `make_review`, which waits for the person's button). A set is items answered one per screen: choice (gold's
-  yes / no / unsure, with flags such as fused), words (which are stressed) or text (a corrected line, a speaker's
-  name), each kind with extra options that may need a reason (bad: cut off). What the two pages did, every set
-  does: blind by construction (hidden fields never served; the machine's answer after answering, or first and
-  recorded as seen, or never), one seeded shuffle, an append-only log with seconds per answer (time left at the
-  person's pace), the latest answer winning, audio cut on first play, keys for everything, Back to revise.
-  Scores: agreement and Cohen's kappa with a confusion table, exact match and top-word hit, word error rate; on the
-  first unseen answers; with the set's and answers' sha256 for citing.
-- Sets from runs: comments (blocks half from those the extractor flagged, the gold question, the extractor's
-  answer revealed after), speakers (one item per label per recording, answered with a name), transcript (lines to
-  correct, scored as Whisper's WER; `--blind` writes them from scratch).
-- `scripts/review_gold_sample.py` made the gold sample's 180 blocks a set in shiro's workspace (no model output in
-  it at all; `--write-back` fills gold_coding.csv for hands_on_dl's analysis). `scripts/review_stress_clips.py`
-  made the stress clips a set (170 after exclusions) with the 172 labels so far; its blind score, WhiStress 47 of
-  49 (95.9%), is score_corpus_labels.py's own. Neither original page is changed or retired.
-- Not done: the assistant eval with the two new tools (three cases added to evals/assistant_cases.yaml; run it
-  before relying on the small model to pick them); several annotators' agreement with each other (each answer
-  records `by`, so the data is there); the stress page's video-level Review mode (keep/exclude per video, with
-  re-cutting), which stays in AITranscribe. The GUI listens on 127.0.0.1 only, so labelling from another machine
-  goes through `ssh -L 8765:127.0.0.1:8765 shiro`, where the old pages listened on the tailnet address.
-
-## October 23: compute time, tokens and their API price (Jeff's Oct 22 item 3)
-
-- `usage.py` and `ontherecord usage` (and the Jobs tab's line and details): compute hours from the store's receipts
-  (each one a piece of work done once; a batch's model loading counted once), by stage, device and month; the
-  queue's busy time; tokens; their price at six API models (Claude Sonnet 5.5 and GPT-5.6 Terra headline; Opus 5.5
-  and Sol, Fable 5.1 and Astra too), read Oct 23 from Anthropic's and OpenAI's pricing pages and written in
-  `usage.py` with that date; speeds by software version (Whisper and pyannote as times real time; llama.cpp prompt
-  and generation tok/s).
-- Tokens now recorded by every language-model stage (stress_read too) with llama-server's own speeds (its `timings`,
-  checked in tools/server/server-common.cpp), in metrics only: timings vary per run, and comments.json must stay
-  byte-identical. The assistant logs each call to `<workspace>/usage/assistant.jsonl`.
-- Estimates from this machine's receipts (per minute of audio, per stage and model, plus model loading), in Jeff's
-  yardsticks (a coffee break, a lunch break, a long meeting, overnight): `plan` and its `--json`, `transcribe`, the
-  Build tab, the Transcribe form, the Jobs tab's time left, and the assistant's transcribe and jobs answers (their
-  outputs; no tool description changed, so no eval rerun).
-- shiro so far: 5.66 h since Oct 22; 468,867 tokens in and 39,879 out (comment extraction), $1.34 at Sonnet 5.5,
-  $1.42 at GPT-5.6 Terra. The 10 stress_read receipts from before Oct 23 carry no token counts and are reported as
-  not counted. Whisper large-v3 float16 runs at 7.5x real time and diarization at 58x on the 5070 Ti; this machine
-  takes about 9 minutes per hour of audio for a transcript.
-- Not done: tok/s has no data until the next language-model run; transcription is not priced at API speech-to-text
-  rates (only tokens are); hands_on_dl and AITranscribe work before On the Record is not in the ledger.
-
 ## October 23: security review (after a run of zero-days)
 
 What goes online: setup's downloads, the YouTube download stage, the token Check, and an assistant endpoint if one
@@ -146,6 +105,52 @@ Still depending on TLS: a forged certificate for huggingface.co (the post claims
 expose the Hugging Face token during a download or Check (it is read-only; revoke it if in doubt), but could not
 change a model file. Keep the system's root certificates updated.
 
+## October 23: compute time, tokens and their API price (Jeff's Oct 22 item 3)
+
+- `usage.py` and `ontherecord usage` (and the Jobs tab's line and details): compute hours from the store's receipts
+  (each one a piece of work done once; a batch's model loading counted once), by stage, device and month; the
+  queue's busy time; tokens; their price at six API models (Claude Sonnet 5.5 and GPT-5.6 Terra headline; Opus 5.5
+  and Sol, Fable 5.1 and Astra too), read Oct 23 from Anthropic's and OpenAI's pricing pages and written in
+  `usage.py` with that date; speeds by software version (Whisper and pyannote as times real time; llama.cpp prompt
+  and generation tok/s).
+- Tokens now recorded by every language-model stage (stress_read too) with llama-server's own speeds (its `timings`,
+  checked in tools/server/server-common.cpp), in metrics only: timings vary per run, and comments.json must stay
+  byte-identical. The assistant logs each call to `<workspace>/usage/assistant.jsonl`.
+- Estimates from this machine's receipts (per minute of audio, per stage and model, plus model loading), in Jeff's
+  yardsticks (a coffee break, a lunch break, a long meeting, overnight): `plan` and its `--json`, `transcribe`, the
+  Build tab, the Transcribe form, the Jobs tab's time left, and the assistant's transcribe and jobs answers (their
+  outputs; no tool description changed, so no eval rerun).
+- shiro so far: 5.66 h since Oct 22; 468,867 tokens in and 39,879 out (comment extraction), $1.34 at Sonnet 5.5,
+  $1.42 at GPT-5.6 Terra. The 10 stress_read receipts from before Oct 23 carry no token counts and are reported as
+  not counted. Whisper large-v3 float16 runs at 7.5x real time and diarization at 58x on the 5070 Ti; this machine
+  takes about 9 minutes per hour of audio for a transcript.
+- Not done: tok/s has no data until the next language-model run; transcription is not priced at API speech-to-text
+  rates (only tokens are); hands_on_dl and AITranscribe work before On the Record is not in the ledger.
+
+## October 23: reviews, checking by hand (generalized from the gold and stress labelling pages)
+
+- `reviews.py`, the Review tab, `ontherecord review`, and two assistant tools (`review_progress`, and
+  `make_review`, which waits for the person's button). A set is items answered one per screen: choice (gold's
+  yes / no / unsure, with flags such as fused), words (which are stressed) or text (a corrected line, a speaker's
+  name), each kind with extra options that may need a reason (bad: cut off). What the two pages did, every set
+  does: blind by construction (hidden fields never served; the machine's answer after answering, or first and
+  recorded as seen, or never), one seeded shuffle, an append-only log with seconds per answer (time left at the
+  person's pace), the latest answer winning, audio cut on first play, keys for everything, Back to revise.
+  Scores: agreement and Cohen's kappa with a confusion table, exact match and top-word hit, word error rate; on the
+  first unseen answers; with the set's and answers' sha256 for citing.
+- Sets from runs: comments (blocks half from those the extractor flagged, the gold question, the extractor's
+  answer revealed after), speakers (one item per label per recording, answered with a name), transcript (lines to
+  correct, scored as Whisper's WER; `--blind` writes them from scratch).
+- `scripts/review_gold_sample.py` made the gold sample's 180 blocks a set in shiro's workspace (no model output in
+  it at all; `--write-back` fills gold_coding.csv for hands_on_dl's analysis). `scripts/review_stress_clips.py`
+  made the stress clips a set (170 after exclusions) with the 172 labels so far; its blind score, WhiStress 47 of
+  49 (95.9%), is score_corpus_labels.py's own. Neither original page is changed or retired.
+- Not done: the assistant eval with the two new tools (three cases added to evals/assistant_cases.yaml; run it
+  before relying on the small model to pick them); several annotators' agreement with each other (each answer
+  records `by`, so the data is there); the stress page's video-level Review mode (keep/exclude per video, with
+  re-cutting), which stays in AITranscribe. The GUI listens on 127.0.0.1 only, so labelling from another machine
+  goes through `ssh -L 8765:127.0.0.1:8765 shiro`, where the old pages listened on the tailnet address.
+
 ## Built and tested (shiro, Linux, RTX 5070 Ti)
 
 - 85 tests pass (`pytest`; 55 before Oct 23). Commits on `main`, none pushed.
@@ -153,9 +158,12 @@ change a model file. Keep the system's root certificates updated.
   see researchathon-notes.md.
 - WhiStress inside On the Record gives the poster's marks on every item (StressTest 218/218, StressPresso
   202/202).
-- Linux installer in a fresh clone; Docker image on the GPU as the host user.
+- Linux installer in a fresh clone; Docker image on the GPU as the host user. Oct 23: the GUI driven headless in
+  Chrome (Setup, Library, resume, Jobs usage, Review), the pinned uv step on Linux (and a mismatch stopping it).
 
-## Decisions (with Jeff, Oct 22)
+## Decisions
+
+With Jeff, Oct 22:
 
 - Name **On the Record**, package `ontherecord`, licence **MIT**.
 - Web GUI on localhost, not PyQt (a pywebview window could wrap it later). uv installers for laptops, Docker for
@@ -168,38 +176,56 @@ change a model file. Keep the system's root certificates updated.
   own tasks. Assistant tiers: E2B for a 4 GB laptop card, E4B from 6 GB; with nothing else running, it takes as
   much of the GPU as fits.
 
+Oct 23:
+
+- **Commit finished work without asking** ("that's what the commit history is for"). Still ask before pushing.
+- PyTorch stays on CUDA 12 builds (cu128 default, cu126 for pre-Turing or older drivers, cpu); llama.cpp goes to
+  CUDA 13.4 where the driver allows. Nobody needs the CUDA Toolkit. (Why: hwdetect.py's docstring.)
+- Every download is pinned by SHA-256 in the code, never "the latest"; the GUI server answers only requests
+  addressed to 127.0.0.1, localhost or ::1.
+- API prices are read once from the providers' pages and written in usage.py with the date; the program never looks
+  them up. Headline: Claude Sonnet 5.5 and GPT-5.6 Terra (Jeff's tiers: Terra ~ Sonnet, Sol ~ Opus, Astra ~ Fable).
+- Reviews keep the old pages' rules: blind by construction, machine answers after answering (or never: the gold
+  sample holds no model output, as pre-registered), seeded order, append-only log. The old pages stay as they are.
+
 ## Waiting on Jeff
 
-1. **Downloads for the quantization comparison (15.3 GB).** Google's `gemma-4-E2B_q4_0-it.gguf` (3.35 GB) and
-   `gemma-4-E4B_q4_0-it.gguf` (5.15 GB), and Unsloth's QAT `gemma-4-E2B-it-qat-UD-Q4_K_XL.gguf` (2.62 GB) and
-   `gemma-4-E4B-it-qat-UD-Q4_K_XL.gguf` (4.22 GB). Optionally Google's BF16 reference
-   `google/gemma-4-E2B-it-qat-q4_0-unquantized` (10.2 GB), for our own KL measurement (`llama-perplexity
-   --kl-divergence`). Unsloth's page reports a mean KL of 0.0017 (theirs) against 0.051 (plain Q4_0) for E2B. Their
-   stated cause: llama.cpp's Q4_0 conversion recomputes the block scales instead of keeping QAT's. That claim is
-   not yet checked independently.
-2. **The paper's 26B file: found.** shiro's `gemma-4-26B-A4B-it-MXFP4_MOE.gguf` (15,419,239,968 bytes, sha256
-   `9d46651aecae9701e7ec7c9dd48418f1d7bdecbb0adc41199eff79684c48ed6c`, quantized_by Unsloth) came from
-   `noctrex/gemma-4-26B-A4B-it-MXFP4_MOE-GGUF`, downloaded Aug 3, 2026 (Chrome's download record). Hugging Face's
-   SHA-256 for that file at main (`ba1408cd8891f9d3af97595ec838779ae8d0ec9b`, May 4, 2026) matches. It is in none
-   of the 142 revisions of `unsloth/gemma-4-26B-A4B-it-GGUF`, whose MXFP4_MOE file changed six times between April
-   and July. The catalog still pins Unsloth's July file (16.55 GB), so a fresh install gets a different model than
-   the paper used. Open question for Jeff: pin noctrex's file instead?
-3. **Projects and folders**: labels in one workspace (recommended) or a workspace per project, automatic
-   transcript folders, speaker names. See [projects-and-folders.md](projects-and-folders.md).
+1. **Projects and folders**: labels in one workspace (recommended) or a workspace per project, automatic
+   transcript folders, speaker names (the speakers review could feed them). See
+   [projects-and-folders.md](projects-and-folders.md).
+2. **The extraction model.** Agreed in outline Oct 22: try Unsloth's QAT `gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf`
+   (fetched Oct 22, 14.25 GB) and make it the catalog's extraction default if it runs well; keep noctrex's MXFP4
+   file (the paper's; provenance below) listed as the paper's; rerun the stress benchmarks on it when he says.
+   Until then the catalog pins Unsloth's July MXFP4 file, so Setup's step 3 shows shiro's 26B as "a different file
+   by that name" and `transcribe --comments` refuses on shiro.
+3. **The assistant eval** (`evals/assistant_eval.py`, now 25 cases): on the four 4-bit E2B/E4B files ("we're not
+   running it right now", Oct 22), and now also because two tools were added (review_progress, make_review).
+4. **deno on shiro**: yt-dlp runs YouTube's JavaScript with bun, unsandboxed; deno would run it with no
+   permissions. A download, so his call; then `js_runtime: {deno: ~/.deno/bin/deno}` in machine.yaml.
+5. **What to cut** to protect Dec 1: WildStressTest's clip-cutting stage, the classical detectors, the audio-LLM
+   arm, Slurm. Whatever is cut goes in the write-up as future work.
+6. Optional downloads, only if asked: Google's full-precision E2B (10.2 GB, for our own KL check); llama.cpp's CUDA
+   13.4 build on shiro (about 600 MB, to test the new install path on real hardware).
+
+The 26B provenance (settled Oct 22): shiro's `gemma-4-26B-A4B-it-MXFP4_MOE.gguf` (15,419,239,968 bytes, sha256
+`9d46651aecae9701e7ec7c9dd48418f1d7bdecbb0adc41199eff79684c48ed6c`) came from
+`noctrex/gemma-4-26B-A4B-it-MXFP4_MOE-GGUF` (main = `ba1408cd8891f9d3af97595ec838779ae8d0ec9b`), downloaded Aug 3,
+2026 (Chrome Profile 2's download record). It is in none of the 142 revisions of `unsloth/gemma-4-26B-A4B-it-GGUF`.
 
 ## Next, in order
 
 1. Read the stress-benchmarks run (`20261022-132631-stress-benchmarks`) against the poster's cascade files
    (`AITranscribe/stress_search/{stresstest,stresspresso}_repro/gemma-4-26B-A4B-it-mxfp4/`). On StressTest the
    poster had 36.7% unmarked, 76.6% top word, 72.9% WhiStress marks, 74.3% true words, and 86.2% WhiStress marks
-   with the paper's prompt. Expect close agreement, not identical: our llama-server calls set `cache_prompt: false`,
-   and the poster's file is the unlocated one above.
-2. After the downloads: the assistant eval (`evals/assistant_eval.py`, 22 cases) on each E2B/E4B file, and the
-   stress reader on E4B. Run them through `ontherecord exclusive`.
-3. Windows test on Jeff's work machine following INSTALL.md; then macOS.
-4. Receipts backfilled for the existing hands_on_dl outputs (the corpus as the paper used it).
-5. Slurm backend (ROAR), if there is time; otherwise say so in the write-up.
-6. The write-up (three pages, due Dec 1, 11:59 pm ET).
+   with the paper's prompt. Expect close agreement, not identical: our llama-server calls set `cache_prompt: false`.
+2. The QAT 26B trial for comment extraction (Waiting on Jeff, item 2), through the queue, then the catalog change.
+3. Receipts backfilled for the existing hands_on_dl outputs (the corpus as the paper used it).
+4. Windows test on Jeff's work machine following INSTALL.md (the walkthrough; the PowerShell uv step and the
+   per-machine PyTorch group are untested), then macOS.
+5. Projects, once Jeff has answered.
+6. Slurm backend (ROAR), if there is time; otherwise say so in the write-up.
+7. The write-up, from about Nov 15. Numbers it can use now: `ontherecord usage` (compute hours, API-price
+   equivalent), the stress review's blind WhiStress score (47 of 49), researchathon-notes.md.
 
 ## Pitfalls
 
@@ -217,6 +243,14 @@ change a model file. Keep the system's root certificates updated.
   diarization timings in that run are inflated.
 - `docs/private/` is gitignored: Jeff's turns, regenerated with `python docs/private/user_turns.py >
   docs/private/user-turns.md`.
+- Claude Code deletes session logs after about 30 days, so "which session downloaded this?" can only be answered
+  for recent work. Older provenance: file dates, Chrome Profile 2's download history (query it for the file name
+  only), and the memory folders.
+- Other programs share the GPU (ComfyUI held 11 GB on Oct 23). On the Record cannot see them; Setup's step 1 warns
+  when one holds a lot of memory. Check `nvidia-smi` before timing anything.
+- Do not answer review items, and do not show Jeff a machine answer some other way: the answers are the yardstick.
+  Review item ids may contain "/", which is why their routes use `{item_id:path}`.
+- Setup's guide shows "to do" on shiro for step 3 until the extraction-model decision (Waiting on Jeff, item 2).
 
 ## Resuming
 
@@ -224,6 +258,8 @@ change a model file. Keep the system's root certificates updated.
 cd ~/src/ontherecord
 .venv/bin/ontherecord jobs                 # what is queued or running (the GUI runs the queue: serve on :8765)
 .venv/bin/ontherecord show RUN_ID          # a run's grid and checks
-.venv/bin/ontherecord models               # what is downloaded, and what this machine should use
-.venv/bin/python -m pytest -q              # 55 tests; run it through `ontherecord exclusive` if a job is running
+.venv/bin/ontherecord setup --check        # this machine: GPUs, driver, the builds it suits, models, warnings
+.venv/bin/ontherecord usage                # compute hours, tokens, the API-price equivalent, speeds
+.venv/bin/ontherecord review list          # the hand-checking sets and how far each has got
+.venv/bin/python -m pytest -q              # 85 tests; run it through `ontherecord exclusive` if a job is running
 ```
