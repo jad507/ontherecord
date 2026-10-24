@@ -22,6 +22,7 @@ _BUILTIN = {
     "stress_set": "stress_set:StressSet",
     "whistress": "whistress:WhiStressMarks",
     "stress_read": "stress_read:StressRead",
+    "word_choices": "word_choices:WordChoices",
 }
 
 

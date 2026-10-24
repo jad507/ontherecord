@@ -72,15 +72,16 @@ class RevealIn(BaseModel):
 
 class ReviewNewIn(BaseModel):
     run: str
-    kind: str                     # comments, speakers, transcript
-    sample: int = 100
+    kind: str                     # comments, speakers, transcript, check
+    sample: int | None = 100      # check: 0 or None for every turn
     name: str | None = None
     blind: bool = False
+    codes: list[str] | None = None
 
 
 class ReviewAnswerIn(BaseModel):
     item: str
-    value: str | list[int]
+    value: str | list[int] | dict
     reason: str = ""
     flags: dict = {}
     note: str = ""
@@ -178,12 +179,17 @@ def create_app(cfg: MachineConfig, dispatch: bool = True, extra_hosts: tuple[str
     def index():
         return (STATIC / "index.html").read_text(encoding="utf-8")
 
+    @app.get("/check", response_class=HTMLResponse)
+    def check_page():
+        """The transcript checker: a checking set's turns, word by word, with five control schemes."""
+        return (STATIC / "check.html").read_text(encoding="utf-8")
+
     @app.get("/static/{name}")
     def static(name: str):
         p = (STATIC / name).resolve()
         if p.parent != STATIC.resolve() or not p.is_file():
             raise HTTPException(404)
-        return FileResponse(p)
+        return FileResponse(p, headers={"Cache-Control": "no-cache"})  # revalidate, so an update is never half-loaded
 
     @app.get("/api/machine")
     def machine():
@@ -323,7 +329,8 @@ def create_app(cfg: MachineConfig, dispatch: bool = True, extra_hosts: tuple[str
     def reviews_new(body: ReviewNewIn):
         from . import reviews
         try:
-            spec = reviews.from_run(store.root, body.run, body.kind, body.sample, name=body.name, blind=body.blind)
+            spec = reviews.from_run(store.root, body.run, body.kind, body.sample, name=body.name, blind=body.blind,
+                                    codes=body.codes)
             return reviews.progress(cfg.workspace, reviews.create(cfg.workspace, spec))
         except (ValueError, FileNotFoundError) as e:
             raise HTTPException(422, str(e))

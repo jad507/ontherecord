@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>On the Record</title>
+<script>try { var t = localStorage.getItem("theme"); if (t && t !== "auto") document.documentElement.dataset.theme = t; } catch (e) {}</script>
 <link rel="stylesheet" href="/static/style.css">
 <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
 </head>
@@ -21,6 +22,7 @@
     <button data-tab="setup">Setup</button>
   </nav>
   <div id="machine" class="muted"></div>
+  <button id="theme" class="secondary small theme-switch" title="Light, dark, or follow the system">Theme: auto</button>
 </header>
 
 <main>

@@ -101,6 +101,11 @@ answers are the yardstick the machine is scored against. The assistant's `review
 `scripts/review_stress_clips.py` turn hands_on_dl's gold sample and AITranscribe's stress clips into sets; the
 stress one reproduces score_corpus_labels.py's blind WhiStress figure (47 of 49).
 
+A `check` set (`review new RUN --kind check [--codes "a, b, ..."]`, from a run with the `word_choices` stage) is every
+speaker turn in order, checked word by word and coded on its own page, `/check#SET` (docs/checking.md): five ways
+of working, each with a tutorial. Whisper's text is shown there, so its score is post-editing, not blind. Its
+answers record which way of working made them, so `review score` compares their pace.
+
 ## Time, tokens and cost
 
 ```bash

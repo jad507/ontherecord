@@ -1,22 +1,49 @@
+/* Penn State's colors (Brand Book, Color v3, May 2023): Nittany Navy and Beaver Blue as canvas or focus, Pugh Blue
+   secondary, the PA accents sparingly. Neutrals and the darker accent variants are ours, chosen so every text color
+   meets WCAG AA (4.5:1) on its background in both themes. The theme follows the system unless the person picks one
+   (html[data-theme], set by the header's switch). Fonts: Roboto is the brand's web font, used if installed;
+   nothing is fetched. */
 :root {
-  --bg: #f7f6f2; --panel: #ffffff; --fg: #1d1f21; --muted: #6b6f76; --line: #dedbd2; --accent: #1f5f8b;
-  --ok: #2e7d4f; --ok-bg: #e3f2e8; --warn: #9a6400; --warn-bg: #fdf1d8; --fail: #b3261e; --fail-bg: #fbe4e2;
-  --reused: #4d5b6a; --reused-bg: #e8ecf0; --run: #1f5f8b; --run-bg: #e1edf6; --idle-bg: #f0efea;
+  color-scheme: light;
+  --bg: #f4f5f5; --panel: #ffffff; --fg: #262626; --head: #001e44; --muted: #555c60; --line: #d3d7d9;
+  --accent: #1e407c; --on-accent: #ffffff; --soft: #96bee6; --on-soft: #262626;
+  --ok: #4a7729; --ok-bg: #e6efe0; --warn: #8a5a00; --warn-bg: #fbf0dc; --fail: #bc204b; --fail-bg: #f8e1e7;
+  --reused: #314d64; --reused-bg: #e8ecef; --run: #1e407c; --run-bg: #e3ebf6; --idle-bg: #eceeef;
+  --doubt: #b35f00; --edit: #007a4d; --gone: #8a9196;
+  --c1: #1e407c; --c2: #b35f00; --c3: #008755; --c4: #bc204b; --c5: #491d70;
+  --c6: #6a3028; --c7: #2b7a76; --c8: #314d64; --c9: #8a6d00; --c10: #0077a8;
   --mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
-  --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --sans: Roboto, "Proxima Nova", "Segoe UI", system-ui, -apple-system, sans-serif;
 }
 @media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #16181b; --panel: #1e2124; --fg: #e6e4df; --muted: #9a9ea6; --line: #33373c; --accent: #6fb0e0;
-    --ok: #7fd09c; --ok-bg: #1f3428; --warn: #f0c060; --warn-bg: #3a3020; --fail: #f28b82; --fail-bg: #3d2523;
-    --reused: #aab6c3; --reused-bg: #283039; --run: #8cc4ef; --run-bg: #1f3242; --idle-bg: #23262a;
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #000321; --panel: #001e44; --fg: #eef2f7; --head: #ffffff; --muted: #a7b6c8; --line: #1f3a66;
+    --accent: #96bee6; --on-accent: #001e44; --soft: #1e407c; --on-soft: #ffffff;
+    --ok: #99cc00; --ok-bg: #14290f; --warn: #ffd100; --warn-bg: #2e2600; --fail: #f2665e; --fail-bg: #3a1020;
+    --reused: #a2aaad; --reused-bg: #0d2547; --run: #96bee6; --run-bg: #0a2f5c; --idle-bg: #0b2750;
+    --doubt: #e98300; --edit: #99cc00; --gone: #6d7f96;
+    --c1: #009cde; --c2: #e98300; --c3: #99cc00; --c4: #f2665e; --c5: #ac8dce;
+    --c6: #b88965; --c7: #3ea39e; --c8: #a2aaad; --c9: #ffd100; --c10: #96bee6;
   }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #000321; --panel: #001e44; --fg: #eef2f7; --head: #ffffff; --muted: #a7b6c8; --line: #1f3a66;
+  --accent: #96bee6; --on-accent: #001e44; --soft: #1e407c; --on-soft: #ffffff;
+  --ok: #99cc00; --ok-bg: #14290f; --warn: #ffd100; --warn-bg: #2e2600; --fail: #f2665e; --fail-bg: #3a1020;
+  --reused: #a2aaad; --reused-bg: #0d2547; --run: #96bee6; --run-bg: #0a2f5c; --idle-bg: #0b2750;
+  --doubt: #e98300; --edit: #99cc00; --gone: #6d7f96;
+  --c1: #009cde; --c2: #e98300; --c3: #99cc00; --c4: #f2665e; --c5: #ac8dce;
+  --c6: #b88965; --c7: #3ea39e; --c8: #a2aaad; --c9: #ffd100; --c10: #96bee6;
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.45 var(--sans); }
 header { display: flex; align-items: center; gap: 24px; padding: 10px 20px; border-bottom: 1px solid var(--line);
   background: var(--panel); position: sticky; top: 0; z-index: 5; flex-wrap: wrap; }
-.brand { font-weight: 650; font-size: 16px; letter-spacing: .2px; }
+.brand { font-weight: 650; font-size: 16px; letter-spacing: .2px; color: var(--head); }
+.theme-switch { font-size: 12px; padding: 3px 10px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .mark { color: var(--fail); }
 nav { display: flex; gap: 4px; }
 nav button { background: none; border: 0; padding: 6px 12px; border-radius: 6px; color: var(--muted); cursor: pointer;
@@ -32,7 +59,7 @@ input, select, textarea { display: block; width: 100%; margin-top: 3px; padding:
   border-radius: 6px; background: var(--panel); color: var(--fg); font: 13px var(--sans); }
 textarea { font-family: var(--mono); font-size: 12px; resize: vertical; }
 input[type=checkbox] { display: inline; width: auto; margin: 0 6px 0 0; }
-button { padding: 7px 14px; border-radius: 6px; border: 1px solid var(--accent); background: var(--accent); color: #fff;
+button { padding: 7px 14px; border-radius: 6px; border: 1px solid var(--accent); background: var(--accent); color: var(--on-accent);
   font: 600 13px var(--sans); cursor: pointer; }
 button.secondary { background: var(--panel); color: var(--accent); }
 button.small { padding: 2px 8px; font-size: 12px; font-weight: 500; }
@@ -180,7 +207,7 @@ table.data th { position: sticky; top: 0; background: var(--panel); }
 .fs-list div:hover { background: var(--sel, rgba(80, 120, 220, .08)); }
 @media (max-width: 800px) { .imp-cols { grid-template-columns: 1fr; } }
 a.button { display: inline-block; padding: 7px 14px; border-radius: 6px; border: 1px solid var(--accent); background: var(--accent);
-  color: #fff; text-decoration: none; font: 600 13px var(--sans); }
+  color: var(--on-accent); text-decoration: none; font: 600 13px var(--sans); }
 a.button.secondary { background: var(--panel); color: var(--accent); }
 a.button.small { padding: 2px 8px; font-size: 12px; font-weight: 500; }
 .imp-cols .row input { display: inline-block; margin-top: 0; }
@@ -189,7 +216,7 @@ a.button.small { padding: 2px 8px; font-size: 12px; font-weight: 500; }
 .ask { max-width: 900px; margin: 0 auto; }
 .chat { display: flex; flex-direction: column; gap: 10px; margin-bottom: 10px; }
 .bubble { padding: 9px 12px; border-radius: 10px; max-width: 85%; white-space: pre-wrap; line-height: 1.5; }
-.bubble.user { align-self: flex-end; background: var(--accent); color: #fff; }
+.bubble.user { align-self: flex-end; background: var(--accent); color: var(--on-accent); }
 .bubble.bot { align-self: flex-start; background: var(--panel); border: 1px solid var(--line); }
 .bubble.bot details { margin-top: 6px; font-size: 12px; color: var(--muted); white-space: normal; }
 .bubble.bot details pre { white-space: pre-wrap; font-size: 12px; max-height: 260px; overflow: auto; }

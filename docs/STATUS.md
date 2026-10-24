@@ -1,8 +1,8 @@
-# Status and handoff (October 23, 2026)
+# Status and handoff (October 24, 2026)
 
 Where On the Record stands, what was decided and why, what is waiting on Jeff, and what to do next, for whoever
 picks it up next (a person or an agent). Written Oct 22 at the end of the first build session and brought up to
-date at the end of Oct 23's. The Research-a-thon write-up notes, with every number and its source, are in
+date at the end of Oct 23's and Oct 24's. The Research-a-thon write-up notes, with every number and its source, are in
 [researchathon-notes.md](researchathon-notes.md). The write-up (three pages) is due Dec 1, 11:59 pm ET.
 
 ## Against the original four-week plan
@@ -22,6 +22,36 @@ catalog, clearing the card); the Ask assistant with confirm buttons; the MCP ser
 catalog; installers (uv) and a Docker image; one-job-at-a-time with `ontherecord exclusive`. On Oct 23: the guided
 first run with machine detection and per-machine builds, picking up where you left off, transcript files, a
 security review, compute time / tokens / API-price equivalents with time estimates, and reviews (checking by hand).
+
+## October 24: checking transcripts by ear (word choices, the Check page), Penn State themes
+
+Jeff asked for keyboard-first transcript checking and coding (WildStressTest's checking was mostly mouse work), with
+Whisper's other likely words on left-hand keys, about five control schemes to try, tutorials a non-gamer can follow,
+and light and dark themes from Penn State's colors. See [checking.md](checking.md).
+
+- **`word_choices` stage** (`stages/word_choices.py`, needs `audio` and `align`, makes `words`): forced alignment of
+  the transcript's own text (no new transcription), then for each word with a token below 0.8, Whisper's next-token
+  distribution there and a short greedy completion of each alternative to find how many words it replaces. Words
+  are the transcript split at spaces ("Balke-Hilditch." is one word; version 2 fixed that). 4 to 8 GPU minutes per
+  hour of audio on shiro (transcription is about 9); 5 to 8% of words get choices. CTranslate2 4.8.3 quirks found:
+  `generate()` returns logits for every forced prefix step, decodes a forced prefix one token at a time, and stops
+  at about half the `max_length` given; each batch row holds about 245 MB of cross-attention for large-v3.
+- **`check` review kind** (`reviews.py`): every speaker turn in order (parts of at most 60 s), WAV clips for exact
+  word seeking, codes on keys 1-5 and Q-T (`--codes`), flags (wrong speaker, crosstalk). Answers record the corrected
+  text, edits by how they were made, codes as word spans, the way of working, keys, plays and active seconds.
+  `review score` reports post-editing WER (not blind), how often a typed word was one of the choices, and seconds per
+  minute of audio per way of working.
+- **The Check page** (`/check#SET`, `static/check.*`): five ways of working (Follow along, Key per word, Grid, One at a
+  time, Type it), one engine (audio, edits, undo, drafts, saving, coding), an always-on map of what each left-hand key
+  does, a start screen, and a tutorial for each on a practice turn (nothing saved).
+- **Themes**: the whole GUI now uses Penn State's palette in light and dark (switch in the header; follows the system
+  by default), every text color checked at 4.5:1 or better; speaker colors use the same ten accents. Fonts: Roboto
+  if installed, nothing fetched (the Proxima Nova files are licensed, so they stay out of the repository). Static
+  files are now served with `Cache-Control: no-cache`, so an update is never half-loaded.
+- In shiro's workspace: run `20261024-104844-check-words` (the water mains meeting and the data center press
+  conference) and the set `check-water-mains-and-press-conference-20261024` (64 turns, no answers). Tested: 90 tests;
+  each scheme, coding, saving and all five tutorials driven headless in Chrome (`scripts/cdp.py`) against a scratch
+  copy of the set (no answers in the real one), both themes. Not yet tried by a person, and not with a screen reader.
 
 ## October 23: first run, machine detection, picking up where you left off
 
@@ -153,7 +183,7 @@ change a model file. Keep the system's root certificates updated.
 
 ## Built and tested (shiro, Linux, RTX 5070 Ti)
 
-- 85 tests pass (`pytest`; 55 before Oct 23). Commits on `main`, none pushed.
+- 90 tests pass (`pytest`; 55 before Oct 23, 85 before Oct 24). Commits on `main`, none pushed.
 - The 11 meetings, three ways (left channel, averaged, as coded in May), each compared with hands_on_dl's files:
   see researchathon-notes.md.
 - WhiStress inside On the Record gives the poster's marks on every item (StressTest 218/218, StressPresso
@@ -204,7 +234,10 @@ Oct 23:
    permissions. A download, so his call; then `js_runtime: {deno: ~/.deno/bin/deno}` in machine.yaml.
 5. **What to cut** to protect Dec 1: WildStressTest's clip-cutting stage, the classical detectors, the audio-LLM
    arm, Slurm. Whatever is cut goes in the write-up as future work.
-6. Optional downloads, only if asked: Google's full-precision E2B (10.2 GB, for our own KL check); llama.cpp's CUDA
+6. **The Check page**: try the five ways (each tutorial takes a few minutes) and say which to keep, change or drop;
+   the codes to use instead of the placeholders (`review new RUN --kind check --codes "..."`); which recordings get
+   `word_choices` next (4 to 8 GPU minutes per hour of audio).
+7. Optional downloads, only if asked: Google's full-precision E2B (10.2 GB, for our own KL check); llama.cpp's CUDA
    13.4 build on shiro (about 600 MB, to test the new install path on real hardware).
 
 The 26B provenance (settled Oct 22): shiro's `gemma-4-26B-A4B-it-MXFP4_MOE.gguf` (15,419,239,968 bytes, sha256
@@ -224,7 +257,9 @@ The 26B provenance (settled Oct 22): shiro's `gemma-4-26B-A4B-it-MXFP4_MOE.gguf`
    per-machine PyTorch group are untested), then macOS.
 5. Projects, once Jeff has answered.
 6. Slurm backend (ROAR), if there is time; otherwise say so in the write-up.
-7. The write-up, from about Nov 15. Numbers it can use now: `ontherecord usage` (compute hours, API-price
+7. After Jeff has tried the Check page: keep the ways he likes, and consider giving the assistant's `make_review` the
+   `check` kind (a tool description change, so rerun the assistant eval).
+8. The write-up, from about Nov 15. Numbers it can use now: `ontherecord usage` (compute hours, API-price
    equivalent), the stress review's blind WhiStress score (47 of 49), researchathon-notes.md.
 
 ## Pitfalls
@@ -248,6 +283,8 @@ The 26B provenance (settled Oct 22): shiro's `gemma-4-26B-A4B-it-MXFP4_MOE.gguf`
   only), and the memory folders.
 - Other programs share the GPU (ComfyUI held 11 GB on Oct 23). On the Record cannot see them; Setup's step 1 warns
   when one holds a lot of memory. Check `nvidia-smi` before timing anything.
+- Testing the GUI: `scripts/cdp.py` drives headless Chrome (its docstring has the commands). Use a scratch workspace
+  holding a copy of the set: answers posted while testing would otherwise land in Jeff's set.
 - Do not answer review items, and do not show Jeff a machine answer some other way: the answers are the yardstick.
   Review item ids may contain "/", which is why their routes use `{item_id:path}`.
 - Setup's guide shows "to do" on shiro for step 3 until the extraction-model decision (Waiting on Jeff, item 2).

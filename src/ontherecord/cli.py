@@ -8,7 +8,7 @@
     ontherecord receipt RUN_ID ITEM STAGE  the full receipt behind one cell
     ontherecord transcribe FILE|LINK...    queue speaker-labelled transcripts, set for this machine (no recipe needed)
     ontherecord usage                      compute hours, tokens and their API-price equivalent, speeds by version
-    ontherecord review new RUN --kind K    a set to check by hand (comments, speakers, transcript); list, score, export
+    ontherecord review new RUN --kind K    a set to check by hand (comments, speakers, transcript, check); list, score, export
 
   The job queue (the same one the GUI uses; one job at a time per workspace):
     ontherecord submit RECIPE [--wait]     queue a run; prints its run id
@@ -282,14 +282,17 @@ def cmd_review(args) -> int:
         raise SystemExit(f"review {a} needs a {'run id' if a == 'new' else 'JSON file' if a == 'create' else 'set id'}")
     try:
         if a == "new":
-            spec = reviews.from_run(ws, target, args.kind, args.sample, name=args.name, blind=args.blind)
+            spec = reviews.from_run(ws, target, args.kind, args.sample, name=args.name, blind=args.blind,
+                                    codes=args.codes.split(",") if args.codes else None,
+                                    turn_seconds=args.turn_seconds)
         elif a == "create":
             spec = json.loads(Path(target).read_text(encoding="utf-8"))
         if a in ("new", "create"):
             sid = reviews.create(ws, spec)
             p = reviews.progress(ws, sid)
-            print(json.dumps(p) if args.json else f"{sid}: {p['items']} items. Answer them in the GUI's Review tab "
-                  f"(http://127.0.0.1:8765/#review/{sid}).")
+            where = (f"on the Check page (http://127.0.0.1:8765/check#{sid})" if p["kind"] == "check" else
+                     f"in the GUI's Review tab (http://127.0.0.1:8765/#review/{sid})")
+            print(json.dumps(p) if args.json else f"{sid}: {p['items']} items. Answer them {where}.")
             return 0
         if a == "list":
             sets = reviews.list_sets(ws)
@@ -318,6 +321,13 @@ def cmd_review(args) -> int:
                       + (", ".join(f"{k} {v}" for k, v in main.items()) or "nothing to compare yet"))
                 for m, row in (sc.get("confusion") or {}).items():
                     print(f"  machine {m:>8}: " + ", ".join(f"person {h} {n}" for h, n in sorted(row.items())))
+                if "by_scheme" in sc:  # check sets: what the choices were worth, and each way of working's pace
+                    print("  edits: " + (", ".join(f"{k} {v}" for k, v in sorted(sc["edits"].items())) or "none")
+                          + f"; typed over a word with choices {sc['typed_over_a_doubtful_word']} times, "
+                          f"{sc['typed_word_was_a_choice']} of them one of the choices; {sc['codes_applied']} codes")
+                    for name, b in sorted(sc["by_scheme"].items()):
+                        pace = f", {b['seconds_per_audio_minute']} s per minute of audio" if b["seconds_per_audio_minute"] else ""
+                        print(f"  {name:>16}: {b['turns']} turns, {b['audio_s'] / 60:.1f} min of audio{pace}")
                 print(f"  set {sc['set_sha256'][:16]}, answers {(sc['answers_sha256'] or '-')[:16]}")
         elif a == "export":
             rows = reviews.export_rows(ws, target)
@@ -702,8 +712,10 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("review", help="sets of items to check by hand, and how the machine scores against them")
     p.add_argument("action", choices=["list", "new", "create", "status", "score", "export"])
     p.add_argument("target", nargs="?", help="new: a run id; create: a JSON set file; status/score/export: a set id")
-    p.add_argument("--kind", choices=["comments", "speakers", "transcript"], default="comments")
-    p.add_argument("--sample", type=int, default=100, help="how many items (comments, transcript)")
+    p.add_argument("--kind", choices=["comments", "speakers", "transcript", "check"], default="comments")
+    p.add_argument("--sample", type=int, help="how many items (comments, transcript: 100; check: every turn)")
+    p.add_argument("--codes", help="check: names for the code keys 1-5 then Q-T, comma-separated")
+    p.add_argument("--turn-seconds", type=float, default=60.0, help="check: longest part of a speaker turn")
     p.add_argument("--name")
     p.add_argument("--blind", action="store_true", help="transcript: write lines from scratch instead of correcting")
     p.add_argument("--out", help="export: a CSV file (default: standard output)")

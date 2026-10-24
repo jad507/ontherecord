@@ -1,0 +1,15 @@
+name: check-words
+description: >
+  Word choices for checking transcripts by hand on the Check page: the 11-minute water mains meeting and the
+  data center press conference, from their left-channel transcripts (cached). Only word_choices runs.
+source:
+  urls:
+    - https://www.youtube.com/watch?v=fe0TavdWvEk   # Water Transmission Mains public meeting - July 9, 2025
+    - https://www.youtube.com/watch?v=WHN2o2S6X-Q   # Press Conference - Data Center Community Benefits Agreement
+stages:
+  - download: {}
+  - audio: {channel: left}
+  - diarize: {}
+  - transcribe: {}
+  - align: {overlap_mode: standard}
+  - word_choices: {}

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Check · On the Record</title>
+<script>try { var t = localStorage.getItem("theme"); if (t && t !== "auto") document.documentElement.dataset.theme = t; } catch (e) {}</script>
+<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/check.css">
+<link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+</head>
+<body class="checker">
+<header>
+  <div class="brand"><a href="/#review" title="Back to the Review tab"><span class="mark">●</span> On the Record</a> <span class="muted">· Check</span></div>
+  <nav id="ck-schemes" aria-label="Way of working"></nav>
+  <div class="ck-tools">
+    <button id="ck-help" class="secondary small">How this works</button>
+    <button id="ck-tutorial" class="secondary small">Tutorial</button>
+    <button id="theme" class="secondary small theme-switch" title="Light, dark, or follow the system">Theme: auto</button>
+  </div>
+</header>
+
+<main id="ck-main">
+  <div id="ck-banner" class="ck-banner" hidden></div>
+  <section id="ck-start" class="ck-start" hidden></section>
+  <section id="ck-work" hidden>
+    <div id="ck-head" class="ck-head"></div>
+    <div id="ck-before" class="ck-ctx"></div>
+    <div id="ck-turn" class="ck-turn"></div>
+    <div id="ck-panel" class="ck-panel"></div>
+    <div id="ck-status" class="ck-status" role="status" aria-live="polite"></div>
+    <div id="ck-after" class="ck-ctx"></div>
+  </section>
+  <div id="ck-coach" class="ck-coach" hidden role="dialog" aria-live="polite"></div>
+  <div id="ck-keys" class="ck-keys" aria-hidden="true"></div>
+</main>
+<audio id="ck-audio" preload="auto"></audio>
+<script src="/static/check.js"></script>
+</body>
+</html>

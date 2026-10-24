@@ -34,6 +34,18 @@ function fmtDur(s) {
 const fmtTime = (iso) => (iso ? new Date(iso).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "");
 const secsBetween = (a, b) => (a && b ? (new Date(b) - new Date(a)) / 1000 : null);
 
+// ---------------------------------------------------------------- theme: follows the system unless picked here
+const THEMES = ["auto", "light", "dark"];
+function applyTheme(t) {
+  if (t === "auto") delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t;
+  const b = $("#theme"); if (b) b.textContent = `Theme: ${t}`;
+}
+applyTheme(LS.get("theme") || "auto");
+$("#theme")?.addEventListener("click", () => {
+  const t = THEMES[(THEMES.indexOf(LS.get("theme") || "auto") + 1) % THEMES.length];
+  LS.set("theme", t); applyTheme(t);
+});
+
 // ---------------------------------------------------------------- tabs
 function showTab(name) {
   document.querySelectorAll("nav button").forEach((b) => b.classList.toggle("active", b.dataset.tab === name));
@@ -513,8 +525,8 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal
 // A recording is played from the audio its transcript was made from (what the models heard), so the transcript lines
 // up with it exactly; the original download is one click away. Deep links: #play/RUN/ITEM/SECONDS.
 let LIB = [], playing = null, lineIdx = -1, searchTimer = null;
-const PALETTE = ["#1f77b4", "#d62728", "#2ca02c", "#9467bd", "#ff7f0e", "#17becf", "#8c564b", "#e377c2", "#7f7f7f",
-  "#bcbd22", "#3949ab", "#00897b", "#c2185b", "#5d4037", "#689f38", "#f9a825"];
+// the theme's ten accent colors (style.css), so speakers read in both themes
+const PALETTE = Array.from({ length: 10 }, (_, i) => `var(--c${i + 1})`);
 const hm = (s) => (s == null ? "" : s >= 3600 ? hms(s) : `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`);
 const outputUrl = (o) => `/api/output?receipt=${encodeURIComponent(o.receipt)}&name=${encodeURIComponent(o.name)}`;
 const marked = (text, words) => words.reduce((t, w) => t.replace(new RegExp(`(${w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi"), "<mark>$1</mark>"), esc(text));
@@ -542,7 +554,7 @@ async function openPlayer(run, item, t = null, { switchTab = true, autoplay = tr
   history.replaceState(null, "", `#play/${encodeURIComponent(run)}/${encodeURIComponent(item)}`);
   const rec = LIB.find((x) => x.id === item);
   const spk = Object.keys(d.speakers);
-  const color = (s) => (s == null ? "#9e9e9e" : PALETTE[spk.indexOf(s) % PALETTE.length]);
+  const color = (s) => (s == null ? "var(--gone)" : PALETTE[spk.indexOf(s) % PALETTE.length]);
   d.color = color;
   const views = rec ? rec.views.map((v) => `<option value="${esc(v.run_id)}" ${v.run_id === run ? "selected" : ""}>${esc(v.run_name)} · ${esc(fmtTime(v.created_utc))}${v.words != null ? ` · ${v.words.toLocaleString()} words` : ""}${v.failed_checks ? " · ⚠ " + v.failed_checks + " failed check" + (v.failed_checks > 1 ? "s" : "") : ""}</option>`).join("") : "";
   const fails = d.problems.filter((p) => p.status === "fail");
@@ -1066,7 +1078,8 @@ $("#lib-add").addEventListener("click", showAddRecording);
 let RV = null, rvItem = null, rvK = 2, rvShown = 0, rvPrev = null, rvWords = new Set();
 const rvBy = () => LS.get("reviewer") || "me";
 const RV_KINDS = { comments: ["Public comments", "is each sampled speech block a public comment? (needs comment extraction)"],
-  speakers: ["Speakers", "who is each speaker label? (needs speakers)"], transcript: ["Transcript lines", "correct sampled lines (needs a transcript)"] };
+  speakers: ["Speakers", "who is each speaker label? (needs speakers)"], transcript: ["Transcript lines", "correct sampled lines (needs a transcript)"],
+  check: ["Check and code", "every speaker turn, word by word, with keys for Whisper's other guesses, then codes (needs word choices)"] };
 
 async function refreshReview(id = null) {
   id = id ?? RV?.id ?? null;
@@ -1074,6 +1087,7 @@ async function refreshReview(id = null) {
   const fresh = !RV || RV.id !== id;
   RV = await api(`/api/reviews/${encodeURIComponent(id)}`).catch(() => null);
   if (!RV) return reviewList();
+  if (RV.kind === "check") { location.href = `/check#${encodeURIComponent(RV.id)}`; return; }  // its own page
   if (fresh) { rvItem = null; rvPrev = null; }
   history.replaceState(null, "", `#review/${RV.id}`);
   reviewShow(rvItem ? rvItem.id : rvNextOpen(null));
@@ -1206,7 +1220,7 @@ $("#review").addEventListener("click", async (e) => {
     const m = $("#rv-msg");
     m.textContent = "Making it…"; m.className = "msg";
     try {
-      const p = await api("/api/reviews", { json: { run: $("#rv-run").value, kind: $("#rv-kind").value, sample: +$("#rv-sample").value || 100, blind: $("#rv-blind").checked } });
+      const p = await api("/api/reviews", { json: { run: $("#rv-run").value, kind: $("#rv-kind").value, sample: $("#rv-kind").value === "check" ? 0 : +$("#rv-sample").value || 100, blind: $("#rv-blind").checked } });
       refreshReview(p.id);
     } catch (err) { m.textContent = err.message; m.className = "msg err"; }
   }
