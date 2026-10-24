@@ -72,6 +72,5 @@ the browser as a draft until saved. `ontherecord review score SET` prints:
 - Choices include formatting ("two" or "2"), which matters for some transcripts and is noise for others.
 - Colors follow Penn State's palette (Nittany Navy, Beaver Blue, Pugh Blue and the PA accents), with darker accent
   variants in the light theme where the brand color would fall below WCAG AA contrast. Every text color is at least
-  4.5:1 on its background in both themes; the theme follows the system unless picked in the header. Text is in a book
-  serif the machine already has (Charter on a Mac, Sitka or Georgia on Windows, Noto Serif on most Linux), because
-  people who are not programmers find sans serif and console-like type off-putting; nothing is fetched.
+  4.5:1 on its background in both themes; the theme follows the system unless picked in the header. The font is
+  Roboto, the brand's web font, bundled with the page (open license), so it looks the same on every machine.

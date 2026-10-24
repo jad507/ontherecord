@@ -45,10 +45,10 @@ and light and dark themes from Penn State's colors. See [checking.md](checking.m
   time, Type it), one engine (audio, edits, undo, drafts, saving, coding), an always-on map of what each left-hand key
   does, a start screen, and a tutorial for each on a practice turn (nothing saved).
 - **Themes**: the whole GUI now uses Penn State's palette in light and dark (switch in the header; follows the system
-  by default), every text color checked at 4.5:1 or better; speaker colors use the same ten accents. Fonts: a book
-  serif already on the machine (Charter, Sitka, Georgia, Noto Serif), not Roboto: Jeff's call that people who are not
-  programmers dislike sans serif and anything console-like; monospace is kept for hashes, ids, paths and logs.
-  Nothing is fetched (the Proxima Nova files are licensed, so they stay out of the repository). Static
+  by default), every text color checked at 4.5:1 or better; speaker colors use the same ten accents. Font: Roboto,
+  the brand's web font, bundled (151 KB, open license) so every machine shows the same; text boxes and key labels
+  use it too, and monospace is kept for hashes, ids, paths and logs. Nothing is fetched (the Proxima Nova files are
+  licensed, so they stay out of the repository). Static
   files are now served with `Cache-Control: no-cache`, so an update is never half-loaded.
 - In shiro's workspace: run `20261024-104844-check-words` (the water mains meeting and the data center press
   conference) and the set `check-water-mains-and-press-conference-20261024` (64 turns, no answers). Tested: 90 tests;

@@ -1,9 +1,18 @@
 /* Penn State's colors (Brand Book, Color v3, May 2023): Nittany Navy and Beaver Blue as canvas or focus, Pugh Blue
    secondary, the PA accents sparingly. Neutrals and the darker accent variants are ours, chosen so every text color
    meets WCAG AA (4.5:1) on its background in both themes. The theme follows the system unless the person picks one
-   (html[data-theme], set by the header's switch). Fonts: a book serif already on the machine (Charter on a Mac,
-   Sitka or Georgia on Windows, Noto Serif on most Linux), since people who are not programmers find sans serif and
-   anything that looks like a console off-putting; monospace only for hashes, ids and paths. Nothing is fetched. */
+   (html[data-theme], set by the header's switch). Font: Roboto, the brand's web font, served from this package
+   so every machine shows the same thing (variable weight, Latin and Latin Extended; SIL Open Font License,
+   roboto-OFL.txt; from npm @fontsource-variable/roboto 5.3.0, tarball sha512-BoaaZiQf8fgtxv07KXkTwx1bKz/EoqIlTXq2OOK
+   KXINxp6qXWdnlChqV+hSaDANS49yyUASFl3OVBMMDTCIHFA==, read Oct 24, 2026). Nothing is fetched. */
+@font-face { font-family: Roboto; font-style: normal; font-weight: 100 900; font-display: swap;
+  src: url(/static/roboto-latin-wght-normal.woff2) format("woff2-variations"); unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD; }
+@font-face { font-family: Roboto; font-style: normal; font-weight: 100 900; font-display: swap;
+  src: url(/static/roboto-latin-ext-wght-normal.woff2) format("woff2-variations"); unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF; }
+@font-face { font-family: Roboto; font-style: italic; font-weight: 100 900; font-display: swap;
+  src: url(/static/roboto-latin-wght-italic.woff2) format("woff2-variations"); unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD; }
+@font-face { font-family: Roboto; font-style: italic; font-weight: 100 900; font-display: swap;
+  src: url(/static/roboto-latin-ext-wght-italic.woff2) format("woff2-variations"); unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF; }
 :root {
   color-scheme: light;
   --bg: #f4f5f5; --panel: #ffffff; --fg: #262626; --head: #001e44; --muted: #555c60; --line: #d3d7d9;
@@ -14,8 +23,7 @@
   --c1: #1e407c; --c2: #b35f00; --c3: #008755; --c4: #bc204b; --c5: #491d70;
   --c6: #6a3028; --c7: #2b7a76; --c8: #314d64; --c9: #8a6d00; --c10: #0077a8;
   --mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
-  --font: Charter, "Bitstream Charter", "Sitka Text", Georgia, Cambria, "Source Serif 4", "Noto Serif",
-    "Liberation Serif", serif;
+  --font: Roboto, "Segoe UI", system-ui, -apple-system, sans-serif;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
