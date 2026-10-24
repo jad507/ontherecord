@@ -1,8 +1,9 @@
 /* Penn State's colors (Brand Book, Color v3, May 2023): Nittany Navy and Beaver Blue as canvas or focus, Pugh Blue
    secondary, the PA accents sparingly. Neutrals and the darker accent variants are ours, chosen so every text color
    meets WCAG AA (4.5:1) on its background in both themes. The theme follows the system unless the person picks one
-   (html[data-theme], set by the header's switch). Fonts: Roboto is the brand's web font, used if installed;
-   nothing is fetched. */
+   (html[data-theme], set by the header's switch). Fonts: a book serif already on the machine (Charter on a Mac,
+   Sitka or Georgia on Windows, Noto Serif on most Linux), since people who are not programmers find sans serif and
+   anything that looks like a console off-putting; monospace only for hashes, ids and paths. Nothing is fetched. */
 :root {
   color-scheme: light;
   --bg: #f4f5f5; --panel: #ffffff; --fg: #262626; --head: #001e44; --muted: #555c60; --line: #d3d7d9;
@@ -13,7 +14,8 @@
   --c1: #1e407c; --c2: #b35f00; --c3: #008755; --c4: #bc204b; --c5: #491d70;
   --c6: #6a3028; --c7: #2b7a76; --c8: #314d64; --c9: #8a6d00; --c10: #0077a8;
   --mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
-  --sans: Roboto, "Proxima Nova", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font: Charter, "Bitstream Charter", "Sitka Text", Georgia, Cambria, "Source Serif 4", "Noto Serif",
+    "Liberation Serif", serif;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
@@ -38,7 +40,7 @@
   --c6: #b88965; --c7: #3ea39e; --c8: #a2aaad; --c9: #ffd100; --c10: #96bee6;
 }
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.45 var(--sans); }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.45 var(--font); }
 header { display: flex; align-items: center; gap: 24px; padding: 10px 20px; border-bottom: 1px solid var(--line);
   background: var(--panel); position: sticky; top: 0; z-index: 5; flex-wrap: wrap; }
 .brand { font-weight: 650; font-size: 16px; letter-spacing: .2px; color: var(--head); }
@@ -56,11 +58,12 @@ main { padding: 16px 20px 60px; }
 h3 { margin: 4px 0 10px; font-size: 14px; }
 label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 8px; }
 input, select, textarea { display: block; width: 100%; margin-top: 3px; padding: 6px 8px; border: 1px solid var(--line);
-  border-radius: 6px; background: var(--panel); color: var(--fg); font: 13px var(--sans); }
-textarea { font-family: var(--mono); font-size: 12px; resize: vertical; }
+  border-radius: 6px; background: var(--panel); color: var(--fg); font: 13px var(--font); }
+textarea { font-size: 14px; resize: vertical; }
+#r-urls, #r-files { font-family: var(--mono); font-size: 12px; }
 input[type=checkbox] { display: inline; width: auto; margin: 0 6px 0 0; }
 button { padding: 7px 14px; border-radius: 6px; border: 1px solid var(--accent); background: var(--accent); color: var(--on-accent);
-  font: 600 13px var(--sans); cursor: pointer; }
+  font: 600 13px var(--font); cursor: pointer; }
 button.secondary { background: var(--panel); color: var(--accent); }
 button.small { padding: 2px 8px; font-size: 12px; font-weight: 500; }
 button.danger { border-color: var(--fail); color: var(--fail); background: var(--panel); }
@@ -179,7 +182,7 @@ table.data th { position: sticky; top: 0; background: var(--panel); }
 .line { display: grid; grid-template-columns: 64px 92px 1fr; gap: 8px; padding: 4px 8px; font-size: 13px; cursor: pointer; border-bottom: 1px solid var(--line); }
 .line:hover { background: var(--sel, rgba(80, 120, 220, .06)); }
 .line.now { background: rgba(80, 120, 220, .16); }
-.line .tm { font-family: var(--mono); color: var(--muted); font-size: 12px; }
+.line .tm { color: var(--muted); font-size: 12px; font-variant-numeric: lining-nums tabular-nums; }
 .line .sp { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cmt { padding: 6px 8px; border-bottom: 1px solid var(--line); cursor: pointer; font-size: 13px; }
 .cmt:hover { background: var(--sel, rgba(80, 120, 220, .06)); }
@@ -207,7 +210,7 @@ table.data th { position: sticky; top: 0; background: var(--panel); }
 .fs-list div:hover { background: var(--sel, rgba(80, 120, 220, .08)); }
 @media (max-width: 800px) { .imp-cols { grid-template-columns: 1fr; } }
 a.button { display: inline-block; padding: 7px 14px; border-radius: 6px; border: 1px solid var(--accent); background: var(--accent);
-  color: var(--on-accent); text-decoration: none; font: 600 13px var(--sans); }
+  color: var(--on-accent); text-decoration: none; font: 600 13px var(--font); }
 a.button.secondary { background: var(--panel); color: var(--accent); }
 a.button.small { padding: 2px 8px; font-size: 12px; font-weight: 500; }
 .imp-cols .row input { display: inline-block; margin-top: 0; }
@@ -260,6 +263,6 @@ table.folders code { word-break: break-all; }
 .rv-opt.sel, .rv-word.sel { border-color: var(--accent); background: var(--run-bg); }
 .rv-words { display: flex; gap: 6px; flex-wrap: wrap; margin: 10px 0; }
 .rv-word { font-size: 18px; padding: 6px 12px; background: var(--panel); color: var(--fg); border-color: var(--line); font-weight: 500; }
-.rv-opt kbd, .rv-word kbd, .rv-blk kbd, label kbd { font: 11px var(--mono); color: var(--muted); border: 1px solid var(--line); border-radius: 3px;
+.rv-opt kbd, .rv-word kbd, .rv-blk kbd, label kbd { font: 11px var(--font); color: var(--muted); border: 1px solid var(--line); border-radius: 3px;
   padding: 0 4px; margin-left: 6px; }
-#rv-text { font: 15px var(--sans); }
+#rv-text { font: 15px var(--font); }
