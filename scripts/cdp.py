@@ -1,7 +1,10 @@
 """A tiny Chrome DevTools Protocol client (standard library only) for driving the GUI headless when testing it.
 
-    google-chrome --headless=new --remote-debugging-port=9333 --user-data-dir=SCRATCH \
+    google-chrome --headless=new --remote-debugging-port=9333 --user-data-dir=SCRATCH --mute-audio \
         --autoplay-policy=no-user-gesture-required --window-size=1360,1000 about:blank
+
+--mute-audio matters: without it a headless page plays through the machine's speakers, over whatever the person
+at it is listening to (Oct 25, while Jeff was coding).
 
     c = CDP(9333); c.send("Page.navigate", url="http://127.0.0.1:8799/check#SET")
     c.js("expression"); c.key("KeyQ", shift=True); c.type("text"); c.shot("page.png")
