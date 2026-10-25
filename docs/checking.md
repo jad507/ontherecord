@@ -1,6 +1,7 @@
 # Checking transcripts by ear (the Check page)
 
-One speaker turn per screen: listen, fix what Whisper got wrong, then code stretches of the turn. Words Whisper was
+One speaker turn at a time, in a transcript that scrolls on to the next turn: listen, fix what Whisper got wrong,
+then code stretches of the turn. Words Whisper was
 unsure of are underlined with dots, and for each of them it offers the words it would have said instead, so most
 fixes are a single key on the left side of the keyboard. Built Oct 24, 2026 as five prototypes to try against each
 other; the page itself has a tutorial for each (practice turns, nothing saved).
@@ -37,13 +38,20 @@ on everything.
 | | How you fix a word | Keys | Good for |
 |---|---|---|---|
 | 1. Follow along | The audio plays and the highlight follows it. Q W E R pick for the word under the highlight; 1 2 3 4 pick for the doubtful word just passed (you are usually a word or two late). 5 makes it stop after each doubtful word. | Space play/pause, A/F step a word, T type, X delete, V can't make out, C undo, S save, D code | listening straight through |
-| 2. Key per word | Every doubtful word has its own key, in reading order across the keyboard (1-5, Q-T, A-G). Press it to flip through what it might be; Shift flips back. | Space, Z from start, ` then a key to type, X undo, C code, V save, Tab next 15 words | reading faster than listening |
-| 3. Grid | One line at a time. Under the line, each doubtful word is a column and each choice a row, laid out like the keyboard: 1 is the first word's first choice, W the second word's second. One press is an exact pick. | Tab next line, Space/Z play the line, ` type the line, X undo, C code, V save | seeing every option at once |
-| 4. One at a time | Like a spelling checker: it rings one doubtful word, plays it, and lists 1 keep, 2-5 the choices, T type, X delete. Picking moves on. | Space again, A back, F skip, G whole turn, C undo, S save, D code | first-timers: everything is on screen |
+| 2. Key per word | Every doubtful word has its own key, in reading order across the keyboard (1-5, Q-T, A-G). Press it to flip through what it might be; Shift flips back. | Space play/pause (carries on from where it stopped), Tab next doubtful word from two words before it (Shift back; the keys move on to the next 15 when Tab passes them), Z from start, ` then a key to type, X undo, C code, V save | reading faster than listening |
+| 3. Grid | One line at a time. Under the line, each doubtful word is a column and each choice a row, laid out like the keyboard: 1 is the first word's first choice, W the second word's second. One press is an exact pick. | Tab next line with doubtful words, played from two words before the first (Shift back), Space/Z play the line, ` type the line, X undo, C code, V save | seeing every option at once |
+| 4. One at a time | Like a spelling checker: it rings one doubtful word, plays it, and lists 1 keep, 2-5 the choices, T type, X delete. Picking moves on. | Space again, A back, F skip, V can't make out, G whole turn, C undo, S save, D code | first-timers: everything is on screen |
 | 5. Type it | A text box with the transcript; the grey line above is what was heard. Typing pauses the audio, Esc plays (going back a second), Tab swaps the word at the cursor for Whisper's other guesses. | Esc, Tab, Alt+A play from cursor, Alt+Z back 3 s, Alt+C code, Ctrl+Enter save | fast typists; fixing anything, not just doubtful words |
 
-All five save the same thing, so they can be compared. Clicking a word types over it in every way. Keys are read
-by position (`KeyboardEvent.code`), so the layout holds on a non-US keyboard.
+All five save the same thing, so they can be compared. In every way a click on a word plays from it and a
+double-click types over it (in Type it, the grey line only plays). Keys are read by position (`KeyboardEvent.code`),
+so the layout holds on a non-US keyboard.
+
+The turns around the current one are shown whole and greyed, as checked where they have been saved, and the page
+scrolls from one turn to the next rather than replacing it; click a grey turn to go to it. The bar above the turn
+shows where the audio is and keeps moving through pauses in the speech ("pause in the speech"), so a long gap does
+not look like a freeze; click it to play from that point. In a tutorial, pressing the step's key marks the step done
+and leaves it on screen; Next (or Enter) moves on and Back rereads.
 
 **Coding** (the same in every way): drag across words with the mouse, or move with A and F holding Shift to
 stretch; press a code's key to add it and again to take it off. Codes stack. With nothing selected (Esc), a code

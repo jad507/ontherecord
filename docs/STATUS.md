@@ -23,6 +23,21 @@ catalog; installers (uv) and a Docker image; one-job-at-a-time with `ontherecord
 first run with machine detection and per-machine builds, picking up where you left off, transcript files, a
 security review, compute time / tokens / API-price equivalents with time estimates, and reviews (checking by hand).
 
+## October 25: the Check page after Jeff's first try; projects decided; the repository on GitHub
+
+- Jeff tried the tutorials, Follow along, Key per word, Grid and One at a time. Changed from what he found: a tutorial
+  step stays on screen when its key is pressed (marked done) until Next or Enter, with Back; a bar above the turn
+  shows where the audio is and keeps moving through pauses in the speech (he thought long gaps were a freeze; he
+  likes it in every way); the turns scroll as one transcript (neighbors whole, as checked where saved, click one to
+  go there) instead of flipping pages; in every way a click plays from a word and a double-click types over it; Key
+  per word: Space carries on from where it stopped (it restarted the turn), Tab hops to two words before the next
+  doubtful word (Shift back), the keys follow it past 15; Grid: Tab skips to the next line with doubtful words and
+  plays from two words before the first; One at a time: V for can't make out. Tested headless against a scratch copy.
+- Projects: his three answers are in [projects-and-folders.md](projects-and-folders.md).
+- Git history rewritten to Jeffrey De Lucca <jad507@psu.edu> before the first push; old hashes (in earlier receipts)
+  map to new ones in [commit-map.txt](commit-map.txt). Remote: github.com/jad507/ontherecord, pushed over a deploy
+  key that only this repository uses. Still ask before pushing.
+
 ## October 24: checking transcripts by ear (word choices, the Check page), Penn State themes
 
 Jeff asked for keyboard-first transcript checking and coding (WildStressTest's checking was mostly mouse work), with
@@ -185,7 +200,7 @@ change a model file. Keep the system's root certificates updated.
 
 ## Built and tested (shiro, Linux, RTX 5070 Ti)
 
-- 90 tests pass (`pytest`; 55 before Oct 23, 85 before Oct 24). Commits on `main`, none pushed.
+- 90 tests pass (`pytest`; 55 before Oct 23, 85 before Oct 24). Commits on `main`; pushed to github.com/jad507/ontherecord when Jeff says.
 - The 11 meetings, three ways (left channel, averaged, as coded in May), each compared with hands_on_dl's files:
   see researchathon-notes.md.
 - WhiStress inside On the Record gives the poster's marks on every item (StressTest 218/218, StressPresso

@@ -61,11 +61,14 @@ function play(from, to = null) {
   if (!S.item.has_clip) return status("This turn has no audio.");
   A.currentTime = clipT(from);
   stopAt = to == null ? null : clipT(to);
-  A.play().catch(() => status("Press a key or click once so the browser lets the page play sound."));
+  A.play().catch((e) => { if (e.name !== "AbortError") status("Press a key or click once so the browser lets the page play sound."); });  // AbortError: a pause came first
   T.stats.plays++;
   emit("play");
 }
 function pause() { A.pause(); stopAt = null; emit("pause"); }
+function resume() { const t = recT(); play(A.currentTime > 0 && !A.ended && t < T.end - 0.3 ? t : T.start); }  // on from where it stopped
+function playFrom(i) { play(Math.max(T.start, T.words[i].s - 0.1)); }
+function leadIn(i) { return Math.max(T.start, Math.max(T.words[Math.max(0, i - 2)].s, T.words[i].s - 3) - 0.1); }  // two words before i
 function playWord(i, before = 0.12, after = 0.12) {
   const w = T.words[i]; if (!w) return;
   const j = lastOfSpan(i);
@@ -92,6 +95,7 @@ function tick() {
       lastNow = -1;
       markNow();
     }
+    drawProgress();
   }
   requestAnimationFrame(tick);
 }
@@ -99,6 +103,40 @@ requestAnimationFrame(tick);
 function markNow() {
   document.querySelectorAll("#ck-turn .now").forEach((e) => e.classList.remove("now"));
   if (S.mode === "check" && lastNow >= 0) document.querySelectorAll(`#ck-turn [data-i="${lastNow}"]`).forEach((e) => e.classList.add("now"));
+  if (playing()) keepInView($("#ck-turn .now"));
+}
+// the bar above the turn: where the audio is, moving through pauses in the speech too; a click plays from there
+function drawProgress() {
+  const bar = $("#ck-progress"), len = Math.max(0.1, T.end - T.start);
+  const at = A.currentTime > 0 ? Math.min(T.end, Math.max(T.start, recT())) : T.start;
+  const on = playing(), w = lastNow >= 0 ? T.words[lastNow] : null, gap = !!(on && w && recT() > w.e + 0.7);
+  bar.firstElementChild.style.width = `${(100 * (at - T.start)) / len}%`;
+  bar.classList.toggle("on", on); bar.classList.toggle("gap", gap);
+  const label = `${on ? "▶" : "❚❚"} ${mmss(at - T.start)} / ${mmss(len)}${gap ? " · pause in the speech" : ""}`;
+  if (bar.lastElementChild.textContent !== label) bar.lastElementChild.textContent = label;
+}
+$("#ck-progress").addEventListener("click", (e) => {
+  if (!T) return;
+  const r = e.currentTarget.getBoundingClientRect();
+  play(T.start + ((T.end - T.start) * (e.clientX - r.left)) / r.width);
+});
+// the turns scroll past like one transcript: the playing word stays in view unless the person scrolled just now
+const motion = () => (matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth");
+let reelTouched = 0;
+["wheel", "touchmove"].forEach((ev) => $("#ck-reel").addEventListener(ev, () => { reelTouched = performance.now(); }, { passive: true }));
+function keepInView(el) {
+  const reel = $("#ck-reel");
+  if (!el || performance.now() - reelTouched < 4000) return;
+  const r = el.getBoundingClientRect(), R = reel.getBoundingClientRect();
+  if (r.top < R.top + R.height * 0.12 || r.bottom > R.bottom - R.height * 0.25) reel.scrollTo({ top: reel.scrollTop + r.top - R.top - R.height * 0.35, behavior: motion() });
+}
+function placeReel(from) {  // the turn just left sits where it was, then everything scrolls to the new one
+  const reel = $("#ck-reel"), R = reel.getBoundingClientRect();
+  const target = reel.scrollTop + $("#ck-who").getBoundingClientRect().top - R.top - Math.min(R.height * 0.22, $("#ck-before").offsetHeight);
+  const old = from && [...reel.querySelectorAll(".ctx-turn")].find((p) => p.dataset.id === from.id);
+  if (!old) { reel.scrollTop = target; return; }
+  reel.scrollTop += old.getBoundingClientRect().top - from.top;
+  requestAnimationFrame(() => reel.scrollTo({ top: target, behavior: motion() }));
 }
 // active time: seconds with a key, a click or the audio playing in the last 30 s (an idle page does not count)
 setInterval(() => { if (T && (playing() || performance.now() - T.lastActive < 30000)) T.active += 1; }, 1000);
@@ -347,22 +385,28 @@ function drawHead() {
   const part = it.part ? ` · part ${it.part[0]} of ${it.part[1]}` : "";
   const flags = (S.set.answer.flags || []).map((f) => `<button class="flag-chip${T.flags[f.name] ? " on" : ""}" data-flag="${esc(f.name)}" aria-pressed="${!!T.flags[f.name]}">${esc(f.label)}</button>`).join("");
   const opts = (S.set.answer.options || []).map((o) => `<button class="flag-chip" data-option="${esc(o.value)}">${esc(o.label)}</button>`).join("");
-  $("#ck-head").innerHTML = `<div class="who"><b class="spk">${esc(it.speaker || "speaker unknown")}</b>${part}
-      <span class="muted"> · ${mmss(it.start)}–${mmss(it.end)} · ${esc(it.title || it.recording || "")}</span></div>
+  $("#ck-who").innerHTML = `<b class="spk">${esc(it.speaker || "speaker unknown")}</b>${part} <span class="muted"> · ${mmss(it.start)}–${mmss(it.end)}</span>`;
+  $("#ck-head").innerHTML = `<div class="title muted">${esc(it.title || it.recording || "")}</div>
     <div class="where"><button class="small secondary" data-go="-1" title="Previous turn">◀</button>
       <span>Turn ${S.idx + 1} of ${n}${S.set.answers[it.id] ? " · saved before" : ""} · ${done} done</span>
       <button class="small secondary" data-go="1" title="Next turn (not saved)">▶</button>
       <span class="mode ${S.mode}">${S.mode === "code" ? "Coding" : `Checking · ${esc(S.scheme.name)}`}</span></div>
     <div class="flags">${flags}${opts}${T.restored ? `<span class="muted"> · your unsaved changes were brought back</span>` : ""}</div>`;
 }
-function drawContext() {
+function ctxId(c) {  // the set's id for a neighboring turn (turns are numbered within their recording), if the set has it
+  const m = /^(.*):(\d+)$/.exec(S.item.id); if (!m) return null;
+  const id = `${m[1]}:${String(+m[2] + c.offset).padStart(m[2].length, "0")}`;
+  return S.set.order.includes(id) ? id : null;
+}
+function drawContext() {  // the turns before and after, whole, as checked where they have been
   const ctx = (S.item.context || []).slice().sort((a, b) => a.offset - b.offset);
-  // the nearest words only: the end of the turns before, the start of the one after
-  const cut = (text, n, tail) => { const w = text.split(/\s+/); return w.length <= n ? text : tail ? `… ${w.slice(-n).join(" ")}` : `${w.slice(0, n).join(" ")} …`; };
-  const block = (c, n, tail) => `<p><b>${esc(c.speaker || "")}</b> <span class="muted">${mmss(c.start)}</span> ${esc(cut(c.text, n, tail))}</p>`;
-  const before = ctx.filter((c) => c.offset < 0);
-  $("#ck-before").innerHTML = before.map((c, k) => block(c, k === before.length - 1 ? 45 : 20, true)).join("");
-  $("#ck-after").innerHTML = ctx.filter((c) => c.offset > 0).slice(0, 1).map((c) => block(c, 30, false)).join("");
+  const block = (c) => {
+    const id = ctxId(c), v = id ? S.set.answers[id] : null, text = v && typeof v === "object" && v.text != null ? v.text : c.text;
+    return `<p class="ctx-turn${id ? " go" : ""}"${id ? ` data-id="${esc(id)}" title="Go to this turn"` : ""}><b>${esc(c.speaker || "")}</b>
+      <span class="muted">${mmss(c.start)}${v ? " · checked" : ""}</span><br>${esc(text)}</p>`;
+  };
+  $("#ck-before").innerHTML = ctx.filter((c) => c.offset < 0).map(block).join("");
+  $("#ck-after").innerHTML = ctx.filter((c) => c.offset > 0).map(block).join("");
 }
 function status(msg, bad = false) { const s = $("#ck-status"); s.textContent = msg; s.classList.toggle("bad", bad); }
 function codePanel() {
@@ -395,7 +439,7 @@ document.addEventListener("keydown", (e) => {
   if (!T || $("#ck-work").hidden) return;
   const inField = e.target.closest("input, textarea");
   if (inField && !inField.dataset.scheme) return;    // an inline type box handles its own keys
-  if (e.code === "Enter" && S.coach?.waitingNext && !inField) { e.preventDefault(); return coachNext(); }
+  if (e.code === "Enter" && coachReady() && !inField) { e.preventDefault(); return coachNext(); }
   const handler = S.mode === "code" ? CODING : S.scheme;
   if (!inField && (e.ctrlKey || e.metaKey || e.altKey) && !handler.mods) return;  // leave the browser's shortcuts alone
   const done = handler.key(e.code, e);
@@ -403,12 +447,14 @@ document.addEventListener("keydown", (e) => {
 });
 document.addEventListener("mousedown", () => { if (T) T.lastActive = performance.now(); });
 
-// clicks: words (type over, or select when coding), choices, head buttons
+// clicks: words (play from there, double-click to type over; select when coding), choices, turns around this one,
+// head buttons
 $("#ck-main").addEventListener("click", (e) => {
-  const b = e.target.closest("[data-go],[data-flag],[data-option],[data-code],[data-alt],[data-start],[data-tut],[data-coach]");
+  const b = e.target.closest("[data-go],[data-flag],[data-option],[data-code],[data-alt],[data-start],[data-tut],[data-coach],.ctx-turn.go");
   if (!b) return;
   const d = b.dataset;
   if (d.go) return go(S.idx + +d.go);
+  if (d.id) return go(S.set.order.indexOf(d.id));
   if (d.flag) { T.flags[d.flag] = !T.flags[d.flag]; changed(); return; }
   if (d.option) return save(1, d.option);
   if (d.code && b.classList.contains("code")) { toggleCode(d.code); return; }
@@ -416,15 +462,19 @@ $("#ck-main").addEventListener("click", (e) => {
   if (d.start) { useScheme(d.start); startWork(); return; }
   if (d.tut) { useScheme(d.tut); startTutorial(); return; }
   if (d.coach === "next") return coachNext();
+  if (d.coach === "back") return coachBack();
   if (d.coach === "skip") return endTutorial(false);
 });
-$("#ck-turn").addEventListener("dblclick", (e) => {
-  const w = e.target.closest("[data-i]");
-  if (w && S.mode === "check") typeBox(+w.dataset.i, +w.dataset.i + 1);
-});
+// a second click on the same word within 450 ms is a double-click (counted here, because the first click redraws the
+// turn and the browser would not see two clicks on one element)
+let lastClick = { i: -1, t: 0 };
 $("#ck-turn").addEventListener("click", (e) => {
   const w = e.target.closest("[data-i]");
-  if (w && S.mode === "check") { S.scheme.click ? S.scheme.click(+w.dataset.i) : (T.cursor = +w.dataset.i, playWord(T.cursor), render()); }
+  if (!w || S.mode !== "check") return;
+  const i = +w.dataset.i, now = performance.now(), twice = lastClick.i === i && now - lastClick.t < 450;
+  lastClick = twice ? { i: -1, t: 0 } : { i, t: now };
+  if (twice && S.scheme.id !== "typist") return typeBox(i, lastOfSpan(i) + 1);
+  if (!twice) S.scheme.click ? S.scheme.click(i) : playFrom(i);
 });
 // coding: drag across words to select them
 let dragging = false;
@@ -553,12 +603,12 @@ const FOLLOW = {
     }
   },
   enter() { const t = T; if (S.item.has_clip && !T.restored) setTimeout(() => { if (T === t && S.coach == null && !playing()) play(T.start); }, 150); },
-  click(i) { T.cursor = i; playWord(i); render(); },
+  click(i) { T.cursor = i; playFrom(i); render(); },
   render() {
     plainTurn((i) => ({ cls: i === T.cursor ? ["cursor"] : [] }));
     const b = this.behind(), h = this.here();
     $("#ck-panel").innerHTML = choiceRow(["1", "2", "3", "4"], b, "Just passed:") + choiceRow(["Q", "W", "E", "R"], h, "Here:")
-      + `<p class="muted">T types over the highlighted word · X deletes it · V marks it hard to make out · click a word to go to it, double-click to type over it.</p>`;
+      + `<p class="muted">T types over the highlighted word · X deletes it · V marks it hard to make out · click a word to play from it, double-click to type over it.</p>`;
   },
   tutorial: [
     { say: "This is one speaker's turn. Words with a <span class='demo doubt'>dotted underline</span> are the ones the computer was unsure of. Press <kbd>Space</kbd> to start the audio.", on: "play" },
@@ -570,7 +620,7 @@ const FOLLOW = {
     { say: "If no suggestion is right, press <kbd>T</kbd>, type the word, and press <kbd>Enter</kbd>.", on: "type" },
     { say: "Press <kbd>Space</kbd> to play on. While it plays, the top row (<kbd>1</kbd> to <kbd>4</kbd>) always holds the doubtful word you just passed, so you can fix it without stopping.", on: "play" },
     { say: "Press <kbd>5</kbd> to make the audio stop by itself after each doubtful word, then <kbd>Space</kbd> to go on. Press <kbd>5</kbd> again to turn that off.", on: "stopToggle" },
-    { say: "Also: <kbd>X</kbd> deletes a word that was never said, <kbd>V</kbd> marks one you can't make out, <kbd>G</kbd> replays the last few words, <kbd>Z</kbd> starts the turn over, <kbd>B</kbd> changes the speed. The keyboard map at the bottom always shows what each key does.", next: true },
+    { say: "Also: <kbd>X</kbd> deletes a word that was never said, <kbd>V</kbd> marks one you can't make out, <kbd>G</kbd> replays the last few words, <kbd>Z</kbd> starts the turn over, <kbd>B</kbd> changes the speed. Click a word to play from it, or the bar above the turn to play from that point; the bar keeps moving through pauses in the speech. The keyboard map at the bottom always shows what each key does.", next: true },
     { say: "When the words are right, press <kbd>D</kbd> to code the turn. (<kbd>S</kbd> saves without coding.)", on: "codeMode" },
   ],
 };
@@ -579,55 +629,67 @@ const SLOTS = {
   id: "slots", name: "Key per word", pitch: "Every doubtful word gets its own key, in reading order, like the keyboard: 1 2 3 4 5, then Q W E R T, then A S D F G. Press a word's key to flip through what it might be.",
   good: "you read faster than you listen, and want one press per fix with no moving around.",
   SLOT: ["Digit1", "Digit2", "Digit3", "Digit4", "Digit5", "KeyQ", "KeyW", "KeyE", "KeyR", "KeyT", "KeyA", "KeyS", "KeyD", "KeyF", "KeyG"],
-  page: 0, typing: false,
+  page: 0, typing: false, last: null,
   slots() { return doubts().slice(this.page * 15, this.page * 15 + 15); },
   keys() {
-    const k = { Space: "play / pause", KeyZ: "play from the start", KeyX: "undo", KeyC: "go to coding", KeyV: "save, next turn", KeyB: "previous turn",
-      Backquote: "then a word's key: type over it", Tab: doubts().length > 15 ? "more words (Shift: back)" : "" };
+    const k = { Space: "play / pause (goes on from there)", KeyZ: "play from the start", KeyX: "undo", KeyC: "go to coding", KeyV: "save, next turn", KeyB: "previous turn",
+      Backquote: "then a word's key: type over it", Tab: "next doubtful word (Shift: back)" };
     this.slots().forEach((i, n) => { k[this.SLOT[n]] = T.out[i] || "(deleted)"; });
     return k;
+  },
+  focus(i) {  // ring doubtful word i; the keys move on to the next 15 when it is past these
+    this.last = i;
+    const p = Math.floor(doubts().indexOf(i) / 15);
+    if (p >= 0 && p !== this.page) { this.page = p; status(`The keys are now on doubtful words ${p * 15 + 1}–${Math.min(doubts().length, p * 15 + 15)} of ${doubts().length}.`); }
+  },
+  hop(dir) {  // to the next (or previous) doubtful word, playing from a second before it to just after it
+    const d = doubts(); if (!d.length) return status("The computer was sure of every word in this turn.");
+    const here = this.last ?? (A.currentTime > 0 ? wordAt(recT()) - (dir > 0 ? 1 : 0) : dir > 0 ? -1 : T.words.length);
+    const past = A.currentTime > 0 && dir > 0 ? Math.max(here, wordAt(recT()) - 1) : here;
+    const i = dir > 0 ? d.find((x) => x > past) : [...d].reverse().find((x) => x < here);
+    if (i == null) return status(dir > 0 ? "That was the last doubtful word. V saves and goes to the next turn; C codes it first." : "This is the first doubtful word.");
+    this.focus(i); emit("hop");
+    play(leadIn(i), T.words[lastOfSpan(i)].e + 0.25);
+    render();
   },
   key(code, e) {
     const n = this.SLOT.indexOf(code);
     if (n >= 0) {
       const i = this.slots()[n]; if (i == null) return true;
       if (this.typing) { this.typing = false; typeBox(i, lastOfSpan(i) + 1); return true; }
-      cycle(i, e.shiftKey ? -1 : 1); playSpan(Math.max(0, i - 1), lastOfSpan(i) + 1); this.last = i; this.render(); return true;
+      cycle(i, e.shiftKey ? -1 : 1); playSpan(Math.max(0, i - 1), lastOfSpan(i) + 1); this.focus(i); this.render(); return true;
     }
     switch (code) {
-      case "Space": if (playing()) pause(); else play(lastNow >= 0 ? recT() : T.start); return true;
+      case "Space": if (playing()) pause(); else resume(); return true;
       case "KeyZ": play(T.start); return true;
       case "KeyX": undo(); return true;
       case "KeyC": setMode("code"); return true;
       case "KeyV": save(1); return true;
       case "KeyB": go(S.idx - 1); return true;
       case "Backquote": this.typing = true; status("Now press the key of the word to type over."); return true;
-      case "Tab": {
-        const pages = Math.ceil(doubts().length / 15);
-        if (pages < 2) return true;
-        this.page = (this.page + (e.shiftKey ? -1 : 1) + pages) % pages; emit("page"); status(`Words ${this.page * 15 + 1}–${Math.min(doubts().length, this.page * 15 + 15)} of ${doubts().length} have keys now.`); render(); return true;
-      }
+      case "Tab": this.hop(e.shiftKey ? -1 : 1); return true;
     }
     return false;
   },
   enter() { this.page = 0; this.last = null; },
-  click(i) { typeBox(i, lastOfSpan(i) + 1); },
+  click(i) { if (T.words[i].alts.length) this.focus(i); playFrom(i); render(); },
   render() {
     const slot = new Map(this.slots().map((i, n) => [i, CAP[this.SLOT[n]]]));
-    plainTurn((i) => (slot.has(i) ? { key: slot.get(i), cls: ["slot"] } : {}));
+    plainTurn((i) => ({ ...(slot.has(i) ? { key: slot.get(i) } : {}), cls: [...(slot.has(i) ? ["slot"] : []), ...(i === this.last ? ["focus"] : [])] }));
     const i = this.last;
     const opts = i != null ? [{ t: T.words[i].w, heard: true }, ...choicesFor(i)] : [];
     $("#ck-panel").innerHTML = (i != null ? `<div class="crow"><span class="ctitle">Key <span class="cap">${esc(slot.get(i) || "")}</span> flips through:</span>${opts.map((o) =>
-      `<span class="choice ${(o.heard ? T.how[i] == null : isPicked(i, o)) ? "picked" : ""}">${esc(o.heard ? `${o.t} (as heard)` : choiceLabel(o))}</span>`).join("")}</div>` : `<p class="muted">Press a word's key (the small letter above it) to flip it to the next thing it might be. Shift flips back.</p>`)
-      + `<p class="muted">${doubts().length} doubtful word${doubts().length === 1 ? "" : "s"} in this turn${doubts().length > 15 ? `; Tab shows the next 15` : ""}. Click any word to type over it.</p>`;
+      `<span class="choice ${(o.heard ? T.how[i] == null : isPicked(i, o)) ? "picked" : ""}">${esc(o.heard ? `${o.t} (as heard)` : choiceLabel(o))}</span>`).join("")}</div>` : `<p class="muted">Tab plays the next doubtful word, from two words before it. Press a word's key (the small letter above it) to flip it to the next thing it might be; Shift flips back.</p>`)
+      + `<p class="muted">${doubts().length} doubtful word${doubts().length === 1 ? "" : "s"} in this turn. Click a word to play from it; double-click to type over it.</p>`;
   },
   tutorial: [
     { say: "Every word the computer was unsure of has a small key letter above it, in reading order: the first doubtful word is <kbd>1</kbd>, the second <kbd>2</kbd>, and so on across the keyboard. Press <kbd>Space</kbd> to listen to the turn.", on: "play" },
-    { say: "Press the key of a doubtful word (say <kbd>1</kbd>). It flips to the computer's next guess and plays that bit of audio.", on: "pick" },
+    { say: "<kbd>Space</kbd> pauses, and <kbd>Space</kbd> again carries on from where it stopped. Now press <kbd>Tab</kbd>: it plays the next doubtful word, starting two words before it, and rings it. <kbd>Shift</kbd>+<kbd>Tab</kbd> goes back one.", on: "hop" },
+    { say: "If the ringed word is wrong, press its key (the small letter above it). It flips to the computer's next guess and plays that bit of audio.", on: "pick" },
     { say: "Press the same key again to flip to the next guess. After the last guess it comes back to what was heard. <kbd>Shift</kbd> with the key flips backwards.", on: "pick" },
     { say: "<kbd>X</kbd> undoes the last change. Try it.", on: "undo" },
-    { say: "To type a word yourself, press <kbd>`</kbd> (top left, under Esc) and then the word's key. Or click any word. Type, then <kbd>Enter</kbd>.", on: "type" },
-    { say: "Long turns can have more than 15 doubtful words: <kbd>Tab</kbd> moves the keys on to the next 15. <kbd>Z</kbd> plays from the start, <kbd>B</kbd> goes back a turn.", next: true },
+    { say: "To type a word yourself, press <kbd>`</kbd> (top left, under Esc) and then the word's key, or double-click any word. Type, then <kbd>Enter</kbd>.", on: "type" },
+    { say: "Click any word to play from there. <kbd>Z</kbd> plays from the start, <kbd>B</kbd> goes back a turn. In a long turn the keys move on to the next 15 doubtful words by themselves as <kbd>Tab</kbd> reaches them.", next: true },
     { say: "When it reads right, press <kbd>C</kbd> to code the turn (<kbd>V</kbd> saves without coding).", on: "codeMode" },
   ],
 };
@@ -655,6 +717,16 @@ const LATTICE = {
     return k;
   },
   playLine() { const L = this.lines()[this.line]; if (L) playSpan(L[0], L[L.length - 1]); },
+  hop(dir) {  // to the next (or previous) line with doubtful words, playing it from two words before the first of them
+    const L = this.lines();
+    let nx = this.line + dir;
+    while (nx >= 0 && nx < L.length && !L[nx].some((i) => T.words[i].alts.length)) nx += dir;
+    if (nx >= L.length) return status("That was the last line with doubtful words. V saves and goes to the next turn; C codes it first.");
+    if (nx < 0) return status("This is the first line with doubtful words.");
+    this.line = nx; emit("line"); render();
+    const first = L[nx].find((i) => T.words[i].alts.length);
+    play(leadIn(first), T.words[lastOfSpan(L[nx][L[nx].length - 1])].e + 0.15);
+  },
   key(code, e) {
     for (let r = 0; r < 3; r++) {
       const c = this.COLS[r].indexOf(code);
@@ -664,11 +736,7 @@ const LATTICE = {
     switch (code) {
       case "Space": if (playing()) pause(); else this.playLine(); return true;
       case "KeyZ": this.playLine(); return true;
-      case "Tab": {
-        const nx = this.line + (e.shiftKey ? -1 : 1);
-        if (nx >= L.length) { status("That was the last line. V saves and goes to the next turn; C codes it first."); return true; }
-        this.line = Math.max(0, nx); emit("line"); render(); this.playLine(); return true;
-      }
+      case "Tab": this.hop(e.shiftKey ? -1 : 1); return true;
       case "KeyX": undo(); return true;
       case "KeyC": setMode("code"); return true;
       case "KeyV": save(1); return true;
@@ -678,7 +746,7 @@ const LATTICE = {
     return false;
   },
   enter() { this.line = 0; },
-  click(i) { const l = this.lines().findIndex((L) => L.includes(i)); if (l !== this.line) { this.line = l; render(); this.playLine(); } else typeBox(i, lastOfSpan(i) + 1); },
+  click(i) { const l = this.lines().findIndex((L) => L.includes(i)); if (l !== this.line) { this.line = l; render(); } const L = this.lines()[l]; playSpan(i, L[L.length - 1]); },
   render() {
     const cur = new Set(this.lines()[this.line] || []), cols = this.cols(), colOf = new Map(cols.map((i, c) => [i, c]));
     plainTurn((i) => (colOf.has(i) ? { cls: ["inline", "slot", "colkey"], key: String(colOf.get(i) + 1) } : { cls: [cur.has(i) ? "inline" : "offline"] }));
@@ -689,14 +757,14 @@ const LATTICE = {
     }).join("")}</div>`).join("")}</div>`
       : `<p class="muted">No doubtful words on this line. Tab goes to the next.</p>`;
     $("#ck-panel").innerHTML = `<div class="lmeta">Line ${this.line + 1} of ${this.lines().length}</div>${grid}
-      <p class="muted">Columns are this line's doubtful words, left to right; rows are their choices. Press a key again to put the word back as heard. Click a word to type over it.</p>`;
+      <p class="muted">Columns are this line's doubtful words, left to right; rows are their choices. Press a key again to put the word back as heard. Click a word to play from it; double-click to type over it.</p>`;
   },
   tutorial: [
     { say: "The turn is cut into lines; the current line is the bright one. Press <kbd>Space</kbd> to hear it.", on: "play" },
     { say: "Under the line is a grid. Each column is one doubtful word (its current text sits at the bottom). Each row is a choice, and each choice shows the key that picks it: the grid is laid out like the left side of your keyboard. Pick one.", on: "pick" },
     { say: "Pressing the same key again puts that word back as heard. <kbd>X</kbd> undoes.", on: ["pick", "undo"] },
-    { say: "<kbd>Tab</kbd> goes to the next line and plays it; <kbd>Shift</kbd>+<kbd>Tab</kbd> goes back.", on: "line" },
-    { say: "To type, press <kbd>`</kbd> (top left) to type over the whole line, or click a word. <kbd>Enter</kbd> keeps it, <kbd>Esc</kbd> leaves it.", on: "type" },
+    { say: "<kbd>Tab</kbd> goes to the next line with doubtful words and plays it from two words before the first of them; <kbd>Shift</kbd>+<kbd>Tab</kbd> goes back. <kbd>Space</kbd> plays the whole line.", on: "line" },
+    { say: "To type, press <kbd>`</kbd> (top left) to type over the whole line, or double-click a word. <kbd>Enter</kbd> keeps it, <kbd>Esc</kbd> leaves it. (A single click plays from that word.)", on: "type" },
     { say: "When the turn reads right, press <kbd>C</kbd> to code it (<kbd>V</kbd> saves without coding).", on: "codeMode" },
   ],
 };
@@ -710,7 +778,7 @@ const SPELL = {
   keys() {
     const i = this.at(), alts = i == null ? [] : choicesFor(i);
     const k = { Space: "hear it again", KeyA: "previous word", KeyF: "skip (keep)", KeyG: "play the whole turn", KeyC: "undo", KeyS: "save, next turn", KeyD: "go to coding",
-      Digit1: i == null ? "" : `keep “${T.words[i].w}”`, KeyT: "type it", KeyX: "delete it" };
+      Digit1: i == null ? "" : `keep “${T.words[i].w}”`, KeyT: "type it", KeyX: "delete it", KeyV: "can't make out" };
     alts.slice(0, 4).forEach((a, n) => { k[`Digit${n + 2}`] = a.t || "(delete)"; });
     return k;
   },
@@ -736,6 +804,7 @@ const SPELL = {
       case "KeyG": play(T.start); return true;
       case "KeyT": if (i != null) typeBox(i, lastOfSpan(i) + 1, (ok) => { if (ok) this.advance(); }); return true;
       case "KeyX": if (i != null) { toggleDelete(i); this.advance(); } return true;
+      case "KeyV": if (i != null) { toggleUnclear(i); this.advance(); } return true;
       case "KeyC": undo(); return true;
       case "KeyS": save(1); return true;
       case "KeyD": setMode("code"); return true;
@@ -743,13 +812,13 @@ const SPELL = {
     return false;
   },
   enter() { this.q = 0; const t = T; if (this.at() != null && !T.restored) setTimeout(() => { if (T === t && S.coach == null && !playing()) this.show(); }, 150); },
-  click(i) { const k = this.queue().indexOf(i); if (k >= 0) { this.q = k; this.show(); } else typeBox(i, lastOfSpan(i) + 1); },
+  click(i) { const k = this.queue().indexOf(i); if (k >= 0) { this.q = k; this.show(); } else playFrom(i); },
   render() {
     const i = this.at();
     plainTurn((k) => ({ cls: k === i ? ["focus"] : [] }));
     if (i == null) {
       $("#ck-panel").innerHTML = `<div class="menu done"><p><b>${this.queue().length ? "All the doubtful words are done." : "The computer was sure of every word in this turn."}</b>
-        Listen once more with <kbd>G</kbd> if you like, then <kbd>S</kbd> saves and opens the next turn, or <kbd>D</kbd> codes this one first. Click a word to fix anything else.</p></div>`;
+        Listen once more with <kbd>G</kbd> if you like, then <kbd>S</kbd> saves and opens the next turn, or <kbd>D</kbd> codes this one first. Double-click a word to fix anything else.</p></div>`;
       return;
     }
     const alts = choicesFor(i);
@@ -757,7 +826,8 @@ const SPELL = {
       <button class="choice${T.how[i] == null ? " picked" : ""}" data-spellkey="Digit1"><span class="cap">1</span>keep “${esc(T.words[i].w)}”</button>
       ${alts.slice(0, 4).map((a, n) => `<button class="choice${isPicked(i, a) ? " picked" : ""}" data-spellkey="Digit${n + 2}"><span class="cap">${n + 2}</span>${esc(choiceLabel(a))}<span class="p">${Math.round(a.p * 100)}%</span></button>`).join("")}
       <button class="choice" data-spellkey="KeyT"><span class="cap">T</span>type it</button>
-      <button class="choice" data-spellkey="KeyX"><span class="cap">X</span>delete it</button></div>
+      <button class="choice" data-spellkey="KeyX"><span class="cap">X</span>delete it</button>
+      <button class="choice${T.unclear.has(i) ? " picked" : ""}" data-spellkey="KeyV"><span class="cap">V</span>can't make out</button></div>
       <p class="muted">Space hears it again · A goes back · F skips · the percentages are how likely the computer thought each one was.</p>`;
     $("#ck-panel").onclick = (e) => { const b = e.target.closest("[data-spellkey]"); if (b) this.key(b.dataset.spellkey); };
   },
@@ -766,8 +836,8 @@ const SPELL = {
     { say: "If the word is right, press <kbd>1</kbd> (keep). If one of the other words is what they said, press its number. Either way it moves on to the next word and plays it.", on: "pick" },
     { say: "Do another one.", on: "pick" },
     { say: "<kbd>A</kbd> goes back to the word before, <kbd>F</kbd> skips one. <kbd>C</kbd> undoes. Try <kbd>A</kbd>.", on: "move" },
-    { say: "If none of them is right, press <kbd>T</kbd>, type the word, and press <kbd>Enter</kbd>.", on: "type" },
-    { say: "Words without a ring can be fixed too: click any word to type over it. <kbd>G</kbd> plays the whole turn.", next: true },
+    { say: "If none of them is right, press <kbd>T</kbd>, type the word, and press <kbd>Enter</kbd>. (If you can't make it out at all, <kbd>V</kbd> marks it and moves on.)", on: "type" },
+    { say: "Words without a ring can be fixed too: double-click any word to type over it. A single click plays from that word, and <kbd>G</kbd> plays the whole turn.", next: true },
     { say: "When you are done, press <kbd>D</kbd> to code the turn (<kbd>S</kbd> saves without coding).", on: "codeMode" },
   ],
 };
@@ -923,7 +993,7 @@ async function startTutorial() {
     if (it && it.words && it.words.filter((w) => w.alts?.length).length >= 3 && it.has_clip) { pickId = id; break; }
   }
   S.practice = true;
-  S.coach = { steps: [...S.scheme.tutorial, ...CODING_TUTORIAL], n: 0, waitingNext: false, back: S.idx };
+  S.coach = { steps: [...S.scheme.tutorial, ...CODING_TUTORIAL], n: 0, done: new Set(), back: S.idx };
   $("#ck-banner").hidden = false;
   $("#ck-banner").innerHTML = `Practice: tutorial for <b>${esc(S.scheme.name)}</b>. Nothing you do here is saved. <button class="small secondary" data-coach="skip">End the tutorial</button>`;
   $("#ck-start").hidden = true; $("#ck-work").hidden = false;
@@ -931,21 +1001,26 @@ async function startTutorial() {
   await load();
   drawCoach();
 }
+// a step stays on screen when its key is pressed (marked done) until Next, so it can be read to the end; Back rereads
 function drawCoach() {
   const c = S.coach; if (!c) return;
   const st = c.steps[c.n];
   if (!st) return endTutorial(true);
-  c.waitingNext = !!st.next;
+  const ready = coachReady(), done = c.done.has(c.n);
   $("#ck-coach").hidden = false;
-  $("#ck-coach").innerHTML = `<div class="step">Step ${c.n + 1} of ${c.steps.length}</div><div class="say">${st.say}</div>
-    <div class="actions">${st.next ? `<button data-coach="next">Next (Enter)</button>` : ""}<button class="small secondary" data-coach="skip">End the tutorial</button></div>`;
+  $("#ck-coach").innerHTML = `<div class="step">Step ${c.n + 1} of ${c.steps.length}${done ? ` · <span class="done">✓ done</span>` : ""}</div><div class="say">${st.say}</div>
+    <div class="actions"><button class="small secondary" data-coach="back"${c.n ? "" : " disabled"}>◀ Back</button>
+      <button class="small${ready ? "" : " secondary"}" data-coach="next">${c.n === c.steps.length - 1 ? "Finish" : "Next"} ▶${ready ? " (Enter)" : ""}</button>
+      <button class="small secondary" data-coach="skip">End the tutorial</button></div>`;
 }
+function coachReady() { const c = S.coach; return !!c && !!(c.steps[c.n]?.next || c.done.has(c.n)); }
 function coachNext() { if (!S.coach) return; S.coach.n++; drawCoach(); }
+function coachBack() { if (!S.coach?.n) return; S.coach.n--; drawCoach(); }
 function emit(name, data = {}) {
   const c = S.coach; if (!c) return;
-  const st = c.steps[c.n]; if (!st || st.next) return;
+  const st = c.steps[c.n]; if (!st || st.next || c.done.has(c.n)) return;
   const on = [].concat(st.on);
-  if (on.includes(name) && (!st.when || st.when(data))) { c.n++; setTimeout(drawCoach, 300); }  // count it now, show it after a beat
+  if (on.includes(name) && (!st.when || st.when(data))) { c.done.add(c.n); drawCoach(); }
 }
 async function endTutorial(finished) {
   const back = S.coach?.back ?? S.idx;
@@ -958,8 +1033,9 @@ async function endTutorial(finished) {
 // ---------------------------------------------------------------- loading a set and a turn
 async function load() {
   const id = S.set.order[S.idx];
+  const from = T && S.item && !$("#ck-work").hidden ? { id: S.item.id, top: $("#ck-who").getBoundingClientRect().top } : null;
   pause(); S.mode = "check";
-  S.item = S.next?.id === id ? S.next : await api(`/api/reviews/${encodeURIComponent(S.set.id)}/items/${encodeURIComponent(id)}?k=2`);
+  S.item = S.next?.id === id ? S.next : await api(`/api/reviews/${encodeURIComponent(S.set.id)}/items/${encodeURIComponent(id)}?k=3`);
   S.next = null;
   openTurn(S.item);
   A.src = S.item.has_clip ? clipUrl(S.item.id) : "";
@@ -968,9 +1044,10 @@ async function load() {
   drawContext();
   S.scheme.enter?.();
   render();
+  placeReel(from);
   status(T.restored ? "Your earlier work on this turn is back." : "");
   const nid = S.set.order[S.idx + 1];  // fetch the next turn and cut its audio ahead of time
-  if (nid) api(`/api/reviews/${encodeURIComponent(S.set.id)}/items/${encodeURIComponent(nid)}?k=2`).then((it) => { S.next = it; if (it.has_clip) fetch(clipUrl(nid)).catch(() => {}); }).catch(() => {});
+  if (nid) api(`/api/reviews/${encodeURIComponent(S.set.id)}/items/${encodeURIComponent(nid)}?k=3`).then((it) => { S.next = it; if (it.has_clip) fetch(clipUrl(nid)).catch(() => {}); }).catch(() => {});
 }
 async function boot() {
   const id = setId();
