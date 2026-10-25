@@ -222,9 +222,8 @@ Oct 23:
 
 ## Waiting on Jeff
 
-1. **Projects and folders**: labels in one workspace (recommended) or a workspace per project, automatic
-   transcript folders, speaker names (the speakers review could feed them). See
-   [projects-and-folders.md](projects-and-folders.md).
+1. ~~Projects and folders~~: answered Oct 25 (labels in one workspace, `Transcripts/` written automatically, speaker
+   names in `project.yaml`); see [projects-and-folders.md](projects-and-folders.md).
 2. **The extraction model.** Agreed in outline Oct 22: try Unsloth's QAT `gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf`
    (fetched Oct 22, 14.25 GB) and make it the catalog's extraction default if it runs well; keep noctrex's MXFP4
    file (the paper's; provenance below) listed as the paper's; rerun the stress benchmarks on it when he says.
@@ -257,7 +256,7 @@ The 26B provenance (settled Oct 22): shiro's `gemma-4-26B-A4B-it-MXFP4_MOE.gguf`
 3. Receipts backfilled for the existing hands_on_dl outputs (the corpus as the paper used it).
 4. Windows test on Jeff's work machine following INSTALL.md (the walkthrough; the PowerShell uv step and the
    per-machine PyTorch group are untested), then macOS.
-5. Projects, once Jeff has answered.
+5. Projects, as decided Oct 25 ([projects-and-folders.md](projects-and-folders.md)).
 6. Slurm backend (ROAR), if there is time; otherwise say so in the write-up.
 7. After Jeff has tried the Check page: keep the ways he likes, and consider giving the assistant's `make_review` the
    `check` kind (a tool description change, so rerun the assistant eval).

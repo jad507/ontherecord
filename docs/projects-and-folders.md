@@ -1,6 +1,6 @@
 # Projects and folders: a proposal (October 23, 2026)
 
-Not built yet; waiting on Jeff's choice below. What was built alongside it (the guided Setup, `transcribe`, picking
+Not built yet. Jeff answered on October 25 (below). What was built alongside it (the guided Setup, `transcribe`, picking
 up where you left off, transcript files) is in [STATUS.md](STATUS.md).
 
 ## Today
@@ -33,12 +33,14 @@ project means restarting the GUI on another workspace, and two projects' queues 
 (the machine lease covers the assistant today, not two dispatchers). It can come later, as an option for one
 project ("keep this project's data in its own folder") on top of the labels.
 
-## For Jeff to decide
+## Decided (October 25)
 
-1. Labels in one workspace (recommended), separate workspaces, or labels now with separate workspaces as an option
-   later?
-2. Write each project's `Transcripts/` folder automatically when a run finishes, or only when asked (a button)?
-3. Speaker names per project in `project.yaml`, edited from the player (click a speaker to name them)?
+1. **Labels in one workspace.** His reason: taking a corpus in a new direction with more sources should not mean
+   downloading or reprocessing it again (terabytes); the shared store reuses everything already made.
+2. **`Transcripts/` written automatically** when a run finishes, with two rules: the folder holds the latest run per
+   recording (older versions stay in the store and the Library), and a file a person has edited is never
+   overwritten: the new version goes beside it with the run's date in its name, and the run says so.
+3. **Speaker names per project** in `project.yaml`, edited from the player.
 
 ## Next after that
 
