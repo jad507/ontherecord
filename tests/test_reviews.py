@@ -151,3 +151,20 @@ def test_endpoints_keep_machine_answers_on_the_server(tmp_path):
     assert "stratum" in c.get(f"/api/reviews/{sid}/export.csv").text  # the export is for analysis, not the page
     assert c.get("/api/reviews/..%2F..%2Fetc").status_code == 404
     assert c.get(f"/api/reviews/{sid}/clip/{item}").status_code == 404  # this fake run has no audio
+
+
+@pytest.mark.skipif(not __import__("shutil").which("ffmpeg"), reason="needs ffmpeg")
+def test_neighbors_audio_is_cut_from_the_same_recording_and_only_theirs(tmp_path):
+    import subprocess
+    rec = tmp_path / "meeting.wav"
+    subprocess.run(["ffmpeg", "-nostdin", "-loglevel", "error", "-f", "lavfi", "-i", "sine=frequency=440:duration=30",
+                    str(rec)], check=True)
+    sid = reviews.create(tmp_path, {"name": "ctx", "question": "q", "answer": {"kind": "choice", "options": [{"value": "yes"}]},
+                                    "items": [{"id": "1", "text": "t", "clip": {"path": str(rec), "start": 10, "end": 12},
+                                               "context": [{"offset": -1, "speaker": "A", "start": 2, "end": 9, "text": "before"}]}]})
+    own, before = reviews.clip(tmp_path, sid, "1"), reviews.clip(tmp_path, sid, "1", ctx=-1)
+    assert own and before and own != before
+    seconds = lambda p: float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0",
+                                              str(p)], capture_output=True, text=True).stdout)
+    assert abs(seconds(before) - 9) < 0.2  # 2-9 s, a second either side
+    assert reviews.clip(tmp_path, sid, "1", ctx=1) is None  # no neighbor there: nothing else of the recording is cut

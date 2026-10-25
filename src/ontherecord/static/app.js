@@ -1153,14 +1153,16 @@ async function reviewShow(id) {
   const flags = (ans.flags || []).map((f) => `<label class="muted" style="margin:0"><input type="checkbox" data-rv-flag="${esc(f.name)}" ${(a.flags || {})[f.name] ? "checked" : ""}> ${esc(f.label)}${keyOf(f)}</label>`).join(" ");
   const ctx = (it.context && it.context.length ? it.context : []).filter((c) => c.offset !== 0);
   const target = `<div class="rv-blk rv-target"><div class="who">TARGET${it.speaker ? ` · ${esc(it.speaker)}` : ""}${it.start != null ? ` · ${hm(it.start)}–${hm(it.end)}` : ""}</div>${esc(it.text || "") || '<span class="muted">(write what you hear)</span>'}</div>`;
-  const blk = (c) => `<div class="rv-blk"><div class="who">${esc(c.speaker || "")}${c.start != null ? ` · ${hm(c.start)}–${hm(c.end)}` : ""}</div>${esc(c.text || "")}</div>`;
+  const blk = (c) => `<div class="rv-blk"><div class="who">${esc(c.speaker || "")}${c.start != null ? ` · ${hm(c.start)}–${hm(c.end)}` : ""}${it.has_clip && c.start != null
+    ? ` <button class="small secondary" data-rv-ctx="${c.offset}" title="Hear this block, cut from the same recording">▶ play</button>` : ""}</div>${esc(c.text || "")}</div>`;
   $("#review").innerHTML = head + prev + `
     <details class="rv-q"><summary>The question, and the keys</summary><p>${esc(RV.question)}</p>
       <p class="muted">Keys: the letter on each button answers and moves on${ans.kind === "words" ? "; 1–9 and 0 pick words, Enter saves them" : ""}${ans.kind === "text" ? "; Ctrl+Enter saves the text" : ""};
         P plays or pauses; M shows more context; / jumps to the note (Esc leaves it); ←/→ move without answering.</p></details>
     <div class="meta" style="margin:8px 0">${esc(it.title || "")}${it.link ? ` · <a href="${esc(it.link)}" target="_blank" rel="noopener">source at ${hm(it.start)}</a>` : ""}
       ${a.value !== undefined ? ` · <b>answered: ${esc(rvShowValue(a.value, it))}</b>` : ""}</div>
-    <div class="row" style="display:flex;gap:8px;align-items:center">${it.has_clip ? `<audio id="rv-aud" controls preload="auto" src="/api/reviews/${encodeURIComponent(RV.id)}/clip/${encodeURIComponent(id)}"></audio>` : `<span class="muted">no audio for this item</span>`}
+    <div class="row" style="display:flex;gap:8px;align-items:center">${it.has_clip ? `<audio id="rv-aud" controls preload="auto" src="/api/reviews/${encodeURIComponent(RV.id)}/clip/${encodeURIComponent(id)}"></audio>
+      <audio id="rv-ctx-aud" preload="none" hidden></audio>` : `<span class="muted">no audio for this item</span>`}
       ${it.more_context ? `<button class="small secondary" data-rv-more="1">More context<kbd>M</kbd></button>` : ""}</div>
     ${ctx.filter((c) => c.offset < 0).map(blk).join("")}${target}${ctx.filter((c) => c.offset > 0).map(blk).join("")}
     ${words}${text}<div class="rv-opts">${ans.kind === "choice" ? optBtns : `<span class="muted">or:</span> ${optBtns}`}</div>
@@ -1169,6 +1171,7 @@ async function reviewShow(id) {
     <div id="rv-peeked" class="msg"></div>
     <textarea id="rv-note" rows="1" placeholder="Note: anything that made this hard (optional)">${esc(a.note || "")}</textarea>
     <div id="rv-saved" class="msg"></div>`;
+  $("#rv-aud")?.addEventListener("play", () => $("#rv-ctx-aud").pause());
   history.replaceState(null, "", `#review/${RV.id}/${encodeURIComponent(id)}`);
   if (ans.kind === "text") $("#rv-text").focus();
 }
@@ -1190,12 +1193,24 @@ async function rvAnswer(value, reason = "") {
   } catch (err) { $("#rv-saved").textContent = `Not saved: ${err.message}`; $("#rv-saved").className = "msg err"; }
 }
 function rvStep(d) { const i = RV.order.indexOf(rvItem?.id) + d; if (i >= 0 && i < RV.order.length) { rvK = 2; reviewShow(RV.order[i]); } }
+// a grey block's audio, cut from the item's own recording on first play; one block at a time, the target pausing
+function rvPlayCtx(off) {
+  const a = $("#rv-ctx-aud"), was = a.dataset.off;
+  const label = (txt) => document.querySelectorAll("[data-rv-ctx]").forEach((b) => { b.textContent = b.dataset.rvCtx === a.dataset.off ? txt : "▶ play"; });
+  if (was === String(off) && !a.paused) return a.pause();
+  $("#rv-aud")?.pause();
+  if (was !== String(off)) { a.src = `/api/reviews/${encodeURIComponent(RV.id)}/clip/${encodeURIComponent(rvItem.id)}?ctx=${off}`; a.dataset.off = off; }
+  a.onplaying = () => label("❚❚ pause"); a.onpause = a.onended = () => label("▶ play");
+  label("… cutting");
+  a.play().catch(() => label("no audio"));
+}
 
 $("#review").addEventListener("click", async (e) => {
-  const t = e.target.closest("[data-rv-open],[data-rv-list],[data-rv-step],[data-rv-todo],[data-rv-ans],[data-rv-word],[data-rv-save-words],[data-rv-save-text],[data-rv-more],[data-rv-goto],[data-rv-score],#rv-make");
+  const t = e.target.closest("[data-rv-open],[data-rv-list],[data-rv-step],[data-rv-todo],[data-rv-ans],[data-rv-word],[data-rv-save-words],[data-rv-save-text],[data-rv-more],[data-rv-goto],[data-rv-score],[data-rv-ctx],#rv-make");
   if (!t) return;
   if (t.tagName === "A") e.preventDefault();
   const d = t.dataset;
+  if (d.rvCtx !== undefined) return rvPlayCtx(+d.rvCtx);
   if (d.rvOpen) return refreshReview(d.rvOpen);
   if (d.rvList) return reviewList();
   if (d.rvStep) return rvStep(+d.rvStep);

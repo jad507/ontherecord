@@ -394,28 +394,36 @@ def fingerprints(workspace: Path, set_id: str) -> dict:
 
 
 # ---------------------------------------------------------------------------------------------- audio
-def clip(workspace: Path, set_id: str, item_id: str, ffmpeg: str = "ffmpeg") -> Path | None:
-    """The item's audio (a second either side), cut from its recording once and kept beside the set."""
+def clip(workspace: Path, set_id: str, item_id: str, ffmpeg: str = "ffmpeg", ctx: int | None = None) -> Path | None:
+    """The item's audio (a second either side), cut from its recording once and kept beside the set. With `ctx`, the
+    audio of the neighboring block at that offset instead (only the item's own neighbors, from the same recording)."""
     s = load(workspace, set_id)
-    c = (s["by_id"].get(str(item_id)) or {}).get("clip")
+    it = s["by_id"].get(str(item_id)) or {}
+    c = it.get("clip")
     if not c:
         return None
-    if c.get("file"):  # already a clip of its own (the stress clips)
+    if c.get("file"):  # already a clip of its own (the stress clips), with no recording to cut neighbors from
         p = Path(c["file"])
-        return p if p.is_file() else None
+        return p if p.is_file() and ctx is None else None
+    a, b, key = c["start"], c["end"], str(item_id)
+    if ctx is not None:
+        n = next((x for x in it.get("context", []) if x.get("offset") == ctx and x.get("start") is not None), None)
+        if n is None:
+            return None
+        a, b, key = n["start"], n["end"], f"{item_id}#{ctx}"
     wav = c.get("format") == "wav"  # the Check page seeks word by word: PCM has no codec delay to allow for
-    out = root(workspace) / set_id / "clips" / (hashlib.sha1(str(item_id).encode()).hexdigest()[:16]
+    out = root(workspace) / set_id / "clips" / (hashlib.sha1(key.encode()).hexdigest()[:16]
                                                 + (".wav" if wav else ".m4a"))
     if not out.is_file():
         src = Path(c["path"])
         if not src.is_file():
             return None
-        start = max(0.0, float(c["start"]) - 1)
+        start = max(0.0, float(a) - 1)
         out.parent.mkdir(exist_ok=True)
         tmp = out.with_suffix(".part" + out.suffix)
         codec = ["-ar", "16000", "-c:a", "pcm_s16le"] if wav else ["-c:a", "aac", "-b:a", "64k"]
         subprocess.run([ffmpeg, "-nostdin", "-loglevel", "error", "-y", "-ss", f"{start:.3f}", "-t",
-                        f"{float(c['end']) + 1 - start:.3f}", "-i", str(src), "-vn", "-ac", "1", *codec, str(tmp)],
+                        f"{float(b) + 1 - start:.3f}", "-i", str(src), "-vn", "-ac", "1", *codec, str(tmp)],
                        check=False, timeout=120)
         if not tmp.is_file():
             return None

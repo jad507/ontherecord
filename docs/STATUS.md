@@ -34,6 +34,13 @@ security review, compute time / tokens / API-price equivalents with time estimat
   doubtful word (Shift back), the keys follow it past 15; Grid: Tab skips to the next line with doubtful words and
   plays from two words before the first; One at a time: V for can't make out. Tested headless against a scratch copy.
 - Projects: his three answers are in [projects-and-folders.md](projects-and-folders.md).
+- **The gold sample holds 38 items (of 180) from the 11 phase-inverted meetings** (Oct 21 - Nov 25, 2025): drawn
+  Sep 3 from the blocks of the May 15 diarization, so each shows one speaker label for the block and all its context,
+  and the blocks are cut by pauses (median 12 s against 28 s). Jeff had coded items 1-12 when this came up; at his
+  word his answers (13 rows) went to the desktop trash and coding starts over. Whether the 38 stay, under a second
+  amendment written before any of them is coded, is his decision (Waiting on Jeff).
+- Review tab: each grey context block has a play button, cut from the same local recording as the item (only the
+  item's own neighbors can be cut).
 - Git history rewritten to Jeffrey De Lucca <jad507@psu.edu> before the first push; old hashes (in earlier receipts)
   map to new ones in [commit-map.txt](commit-map.txt). Remote: github.com/jad507/ontherecord, pushed over a deploy
   key that only this repository uses. Still ask before pushing.
@@ -237,6 +244,9 @@ Oct 23:
 
 ## Waiting on Jeff
 
+0. **The gold sample's 38 items from the 11 phase-inverted meetings** (Oct 25, above): leave them out of phase-1
+   accuracy under Amendment 2 (recommended; weights recomputed for the remaining meetings), or code them and report
+   them separately. Decide before coding them; coding restarts from item 1.
 1. ~~Projects and folders~~: answered Oct 25 (labels in one workspace, `Transcripts/` written automatically, speaker
    names in `project.yaml`); see [projects-and-folders.md](projects-and-folders.md).
 2. **The extraction model.** Agreed in outline Oct 22: try Unsloth's QAT `gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf`

@@ -355,10 +355,10 @@ def create_app(cfg: MachineConfig, dispatch: bool = True, extra_hosts: tuple[str
         return reviews.public_item(s, item_id, max(0, min(k, 12)))
 
     @app.get("/api/reviews/{set_id}/clip/{item_id:path}")
-    def review_clip(set_id: str, item_id: str):
+    def review_clip(set_id: str, item_id: str, ctx: int | None = None):
         from . import reviews
         review_or_404(set_id)
-        p = reviews.clip(cfg.workspace, set_id, item_id, cfg.tool("ffmpeg"))
+        p = reviews.clip(cfg.workspace, set_id, item_id, cfg.tool("ffmpeg"), ctx=ctx)
         if p is None:
             raise HTTPException(404, "no audio for this item")
         return FileResponse(p)
