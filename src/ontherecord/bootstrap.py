@@ -125,6 +125,17 @@ MODELS = {
     "whisper-small.en": {"kind": "hf", "repo": "openai/whisper-small.en", "rev": "e8727524f962ee844a7319d92be39ac1bd25655a",
                          "patterns": ["*.json", "*.txt", "model.safetensors"], "bytes": 970_000_000, "role": "stress",
                          "needs_gb": 2, "about": "The Whisper that WhiStress listens with (the stress test stages)"},
+    # NVIDIA's ModelOpt FP8 export (repo made Oct 12, 2026; this revision Oct 29). It runs under vLLM 0.32.0 with
+    # NeMo Speech's plugin, in its own environment (install/nemotron-vllm.sh); on a 16 GB card, with most of the
+    # experts kept in RAM (--cpu-offload-params experts). The model card lists 48 GB and larger cards for FP8.
+    "nemotron-3.5-transcribe-fp8": {
+        "kind": "hf", "repo": "nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B-FP8",
+        "rev": "2b6209f89bec0da576d69183bfdabb3b6c05ade2", "bytes": 34_689_160_218,
+        "patterns": ["*.json", "*.jinja", "*.safetensors", "llm_backbone/config.json", "LICENSE", "licenses/*",
+                     "THIRD_PARTY_NOTICES.md"],
+        "role": "speech", "needs_gb": 48,
+        "about": "NVIDIA Nemotron 3.5 Transcribe 30B-A4B, FP8: transcript, speaker labels and word times in one "
+                 "model (vLLM; experts offloaded to RAM on smaller cards)"},
 }
 
 

@@ -44,7 +44,10 @@ def _path(value) -> Path | None:
 # Stages talk to nobody: models and datasets come from `ontherecord models get` or setup, never as a side effect of a
 # run, and pyannote's usage metrics (on by default, sent to otel.pyannote.ai) stay off. A machine's stage_env can
 # override any of these on purpose. The download stage is the exception by design: yt-dlp is not affected by them.
-LOCAL_ONLY = {"HF_HUB_OFFLINE": "1", "HF_HUB_DISABLE_TELEMETRY": "1", "PYANNOTE_METRICS_ENABLED": "0"}
+LOCAL_ONLY = {"HF_HUB_OFFLINE": "1", "HF_HUB_DISABLE_TELEMETRY": "1", "PYANNOTE_METRICS_ENABLED": "0",
+              # nemotron_transcribe's vLLM reports usage unless told not to, and FlashInfer fetches prebuilt
+              # kernels from NVIDIA when one is missing (with this set it stops and names the file instead)
+              "VLLM_NO_USAGE_STATS": "1", "DO_NOT_TRACK": "1", "FLASHINFER_NO_DOWNLOAD": "1"}
 
 
 @dataclass

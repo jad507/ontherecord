@@ -202,7 +202,8 @@ def test_malformed_yaml_is_a_recipe_error(ws):
 
 def test_stages_run_offline_unless_the_machine_says_otherwise(tmp_path):
     assert MachineConfig().stage_env == {"HF_HUB_OFFLINE": "1", "HF_HUB_DISABLE_TELEMETRY": "1",
-                                         "PYANNOTE_METRICS_ENABLED": "0"}
+                                         "PYANNOTE_METRICS_ENABLED": "0", "VLLM_NO_USAGE_STATS": "1",
+                                         "DO_NOT_TRACK": "1", "FLASHINFER_NO_DOWNLOAD": "1"}
     f = tmp_path / "machine.yaml"
     f.write_text("stage_env:\n  HF_HUB_OFFLINE: 0\n", encoding="utf-8")
     env = load_config(f).stage_env

@@ -16,6 +16,7 @@ _BUILTIN = {
     "audio": "audio:Audio",
     "diarize": "diarize:Diarize",
     "transcribe": "transcribe:Transcribe",
+    "nemotron_transcribe": "nemotron:NemotronTranscribe",
     "align": "align:Align",
     "blocks": "blocks:Blocks",
     "extract_comments": "extract_comments:ExtractComments",

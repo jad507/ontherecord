@@ -551,8 +551,9 @@ def from_run(store_root: Path, run_id: str, kind: str, sample: int | None = 100,
                                   "machine": "yes" if b["block_id"] in flagged else "no",
                                   "hidden": {"stratum": "flagged" if b["block_id"] in flagged else "not flagged"}})
         else:
-            src = _output(store_root, rec, item, "align", "aligned") or _output(store_root, rec, item, "transcribe",
-                                                                                 "transcript")
+            src = (_output(store_root, rec, item, "align", "aligned")
+                   or _output(store_root, rec, item, "transcribe", "transcript")
+                   or _output(store_root, rec, item, "nemotron_transcribe", "transcript"))
             if not src:
                 continue
             segs = [s for s in json.loads(src.read_text(encoding="utf-8")).get("segments", []) if s.get("text")]

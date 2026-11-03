@@ -72,7 +72,13 @@ older than Turing or drivers older than CUDA 12.8, `cpu` without an NVIDIA card)
 CUDA 13 build is out on purpose: CTranslate2 (faster-whisper) needs CUDA 12's cuBLAS, and the CUDA 12 and 13 cuDNN
 wheels install the same files. Nobody needs the CUDA Toolkit, only a new enough driver.
 
-Model downloads are large (3 to 17 GB each): ask the person before starting one. The Hugging Face token goes in
+The one exception is `nemotron_transcribe` (NVIDIA Nemotron 3.5 Transcribe, which gives the transcript, speakers
+and word times in one pass). It runs a vLLM server from its own CUDA 13 environment, built by
+`install/nemotron-vllm.sh` and named as `tools.nemotron_vllm`. FlashInfer compiles its kernels with a CUDA 13
+toolkit's nvcc on the first start. The stage keeps most of the experts in RAM on small cards; see docs/STATUS.md
+(Nov 2).
+
+Model downloads are large (3 to 35 GB each): ask the person before starting one. The Hugging Face token goes in
 the machine's secrets file (`--save-token`), never in a recipe, a receipt or the log.
 
 ## Before running: plan

@@ -67,7 +67,7 @@ class Library:
         last = {}
         for s in steps:
             last[s["stage"]] = s
-        tr = last.get("transcribe")
+        tr = last.get("transcribe") or last.get("nemotron_transcribe")  # either makes the transcript
         audio_step = tr["from"].get("audio") if tr else (last.get("audio") or {}).get("name")
         dl = last.get("download")
         want = {"download": dl and dl["name"], "audio": audio_step, "transcribe": tr and tr["name"],
@@ -211,6 +211,7 @@ HEADLINE = {  # stage type -> the one number that says most about its output, an
     "audio": lambda m: (m.get("mono_vs_loudest_channel_db"), "dB against the louder channel"),
     "diarize": lambda m: ((m.get("standard") or {}).get("speaker_count"), "speakers"),
     "transcribe": lambda m: (m.get("words"), "words"),
+    "nemotron_transcribe": lambda m: (m.get("words"), "words"),
     "align": lambda m: (m.get("segments"), "segments"),
     "blocks": lambda m: (m.get("blocks"), "blocks"),
     "extract_comments": lambda m: (m.get("comments"), "comments"),

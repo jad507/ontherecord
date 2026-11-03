@@ -23,6 +23,46 @@ catalog; installers (uv) and a Docker image; one-job-at-a-time with `ontherecord
 first run with machine detection and per-machine builds, picking up where you left off, transcript files, a
 security review, compute time / tokens / API-price equivalents with time estimates, and reviews (checking by hand).
 
+## November 2: Nemotron 3.5 Transcribe set up, not yet run
+
+Jeff asked for NVIDIA's Nemotron 3.5 Transcribe, the FP8 checkpoint
+(`nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B-FP8`), set up for On the Record. His GPU was busy, so nothing was
+run on it.
+
+- **Downloaded:** revision `2b6209f8` (Oct 29), 34.7 GB, into the Hugging Face cache. Every file was checked against
+  `model_hashes.py`. It is listed as `nemotron-3.5-transcribe-fp8` in `ontherecord models`.
+- **Runtime:** `install/nemotron-vllm.sh` builds its own environment in `~/src/nemo-speech/.venv` (8.5 GB). It has
+  vLLM 0.32.0 and NeMo Speech at `e5d79d5` (Oct 31), installed from NeMo's `uv.lock` with hashes, plus the card's two
+  extras pinned by SHA-256. It is separate because it needs CUDA 13 PyTorch, and faster-whisper needs CUDA 12. NeMo's
+  pyproject blocks OpenCV, so the extras install with `uv pip --no-config`. `machine.yaml` names it as
+  `tools.nemotron_vllm`.
+- **Stage:** `nemotron_transcribe` (`stages/nemotron.py`) takes the place of `diarize` and `transcribe`. It makes
+  their artifacts (the transcript, both RTTMs and the stats), so `align` and everything after it work unchanged. It
+  also makes `nemotron_raw`, every response exactly as the server sent it. It follows the card: the server command,
+  the speaker-tag prompt, temperature 0 with no reasoning, word timestamps through NeMo's middleware, and the card's
+  guard against loops (applied to the words). The recipe to try first is `recipes/eleven-left-nemotron.yaml`. Its
+  downloads and audio are already cached.
+- **Offloading experts:** the experts are 30.65 GB of the 34.7 GB, and everything else is 4.01 GB (read from the
+  safetensors headers). The stage starts vLLM with `--cpu-offload-gb N --cpu-offload-params experts`, trying
+  N = 22, 24, then 26 GiB until one loads. Offloaded weights are pinned in RAM and the GPU reads them in place
+  (UVA). Pinned memory cannot swap, so the stage skips any N that would leave under 4 GiB of RAM free. With 30 GiB
+  in shiro, the server will only start when little else is running. Its speed is unknown: no one has measured this
+  on a 16 GB card.
+- **Long recordings:** the model is trained on recordings up to an hour, and the server is told to accept no more.
+  Longer meetings are cut near each even split, at the quietest second within 30 s of it. Speakers are numbered per
+  piece (`P2_SPEAKER_00`), because the model does not carry voices across pieces. A `pieces` check warns when this
+  happens.
+- **Offline:** `config.LOCAL_ONLY` now also sets `VLLM_NO_USAGE_STATS`, `DO_NOT_TRACK` and
+  `FLASHINFER_NO_DOWNLOAD`. Without the last one, FlashInfer downloads a missing prebuilt kernel from NVIDIA's
+  artifactory (`flashinfer/jit/cubin_loader.py`). With it, FlashInfer stops and names the missing file. If the first
+  start stops that way, the fix is to allow the download or find a pinned kernel package; nothing is set up for
+  either. FlashInfer also compiles kernels with `/usr/local/cuda/bin/nvcc` (13.3) on the first start, which takes
+  several minutes.
+- **First run, when the GPU is free:** `ontherecord submit recipes/eleven-left-nemotron.yaml --wait`, or a single
+  meeting. Things to watch: whether the server loads, and at which N (the receipt's `offload_gib_used`); RAM, in the
+  scratch `vllm.log`; the `audio_minutes_per_minute` metric; and the speaker count. The card's diarization prompt
+  names four speaker tags, and city council meetings have more speakers than that.
+
 ## October 25: the Check page after Jeff's first try; projects decided; the repository on GitHub
 
 - Jeff tried the tutorials, Follow along, Key per word, Grid and One at a time. Changed from what he found: a tutorial
