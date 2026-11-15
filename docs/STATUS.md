@@ -8,13 +8,20 @@ date at the end of Oct 23's and Oct 24's. The Research-a-thon write-up notes, wi
 ## November 14: architecture audit
 
 [audit-2026-11-14.md](audit-2026-11-14.md) audits how well the program generalizes beyond the council and stress
-pipelines, and gives a numbered roadmap with the reasons, the rules that must not be broken (frozen stage outputs
-and defaults), and a done-when test per item. Read it before adding a stage, a review kind or a screen. Nothing in
-it is built yet. Jeff answered two of its four questions on Nov 14: the week before Dec 1 goes to the audit's
-demonstration (D1 annotators, A1 types and readers, A3 `turns`, B1 codebooks, B2 `code` run beside
-`extract_comments`, D5 remote endpoints), ahead of "Next, in order" below; and the model reads `SPEAKER_02`, not
-names, by default. The names `code`/`lens`/`context` and the tab names are deferred until he has used them; build
-with them as working names.
+pipelines, and gives a numbered roadmap with the reasons and a done-when test per item. Read it before adding a
+stage, a review kind or a screen. Nothing in it is built yet.
+
+Jeff, Nov 14: the project is pre-launch, so anything that can be rerun may be broken for a better design, without
+asking (stage outputs, defaults, the store, recipes). The audit was revised for that the same day: stages write
+shared formats directly, `blocks` and `extract_comments` are replaced by `turns` and `code`, and there are no
+adapters for old files. What may not break: people's answers in `<workspace>/reviews/`, the papers' code in
+hands_on_dl and AITranscribe, and the decisions below. The work is ordered as step 0 on `main` (back up reviews,
+the version test, annotators), a `formats` branch, then one rerun that must reproduce the recorded numbers.
+
+His other answers that day: the time before Dec 1 goes to this, ahead of "Next, in order" below (the revised work is
+larger than the week he agreed to; the audit proposes falling back to `main`'s results if the branch has not
+reproduced the numbers by Nov 24, which he has not yet confirmed); the model reads `SPEAKER_02`, not names, by
+default. The names `code`/`lens`/`context` and the tab names are deferred until he has used them.
 
 ## Against the original four-week plan
 
