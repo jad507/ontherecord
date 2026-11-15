@@ -145,10 +145,11 @@ def check_rttm(text: str) -> None:
         if not line.strip():
             continue
         f = line.split()
-        if len(f) < 8 or f[0] != "SPEAKER":
-            raise ArtifactError(f"line {n}: an RTTM line is 'SPEAKER file channel start duration <NA> <NA> speaker ...'")
-        try:
-            start, dur = float(f[3]), float(f[4])
+        if len(f) < 10 or f[0] != "SPEAKER":
+            raise ArtifactError(f"line {n}: an RTTM line is 'SPEAKER file channel start duration <NA> <NA> speaker "
+                                "<NA> <NA>'")
+        try:   # read from the right, as align.load_rttm does: a file id may hold spaces
+            start, dur = float(f[-7]), float(f[-6])
         except ValueError:
             raise ArtifactError(f"line {n}: start and duration must be numbers") from None
         if start < 0 or dur < 0:

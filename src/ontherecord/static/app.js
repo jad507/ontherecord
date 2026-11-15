@@ -294,7 +294,8 @@ async function loadRecipeList() {
 function colHead(s) {
   const type = s.stage || s.name;
   const label = s.label || DEFS[type]?.label || s.name;
-  const wired = Object.entries(s.from || {}).filter(([n, src]) => src !== n && !(DEFS[src] && DEFS[src].makes.includes(n)));
+  // inputs taken from a step named with as: (wiring a person chose), not from a stage's own step
+  const wired = Object.entries(s.from || {}).filter(([, src]) => !DEFS[src]);
   return esc(label) + (s.name !== type ? `<br><span class="step">${esc(s.name)}</span>` : "")
     + (wired.length ? `<br><span class="step">${wired.map(([n, src]) => `${esc(n)} ← ${esc(src)}`).join(", ")}</span>` : "");
 }
@@ -444,7 +445,9 @@ $("#grid").addEventListener("click", async (e) => {
       ${cell.reason ? `<p>${esc(cell.reason)}</p>` : ""}${cell.error ? `<pre>${esc(cell.error)}</pre>` : ""}</div>`;
     return;
   }
-  renderReceipt(await api(`/api/receipt?path=${encodeURIComponent(cell.receipt)}`), cell);
+  // an output's type comes from the run record (a receipt reused from before types has none)
+  const makes = (run.stages.find((s) => s.name === c.dataset.stage) || {}).makes || {};
+  renderReceipt(await api(`/api/receipt?path=${encodeURIComponent(cell.receipt)}`), cell, makes);
 });
 
 function kvRows(obj, defaults = {}) {
@@ -460,7 +463,7 @@ function kvRows(obj, defaults = {}) {
   }).join("");
 }
 
-function renderReceipt(r, cell) {
+function renderReceipt(r, cell, makes = {}) {
   const d = DEFS[r.stage] || { settings: {} };
   const defaults = Object.fromEntries(Object.entries(d.settings).map(([k, s]) => [k, s.default]));
   const env = r.environment || {};
@@ -468,7 +471,7 @@ function renderReceipt(r, cell) {
   const checks = [...(cell.run_checks || []), ...(r.checks || [])].map(li).join("") || `<li class="muted">This stage has no checks.</li>`;
   const inputs = Object.entries(r.inputs || {}).map(([k, v]) => `<tr><td>${esc(k)}</td><td class="v">from ${esc(v.from_step || v.from_stage)} <span class="hash">${esc((v.sha256 || "").slice(0, 16))}</span></td></tr>`).join("") || `<tr><td colspan="2" class="muted">${esc(r.item.url || r.item.path || "")}</td></tr>`;
   const outputs = Object.entries(r.outputs || {}).map(([k, v]) => `<tr><td>${esc(k)}</td><td class="v">${esc(v.file.split(/[\\/]/).pop())} · ${(v.bytes / 1024).toFixed(0)} KB <span class="hash">${esc(v.sha256.slice(0, 16))}</span>
-    <button class="small secondary" data-preview="${esc(k)}" data-type="${esc(v.type || "other")}">Open</button></td></tr>`).join("");
+    <button class="small secondary" data-preview="${esc(k)}" data-type="${esc(makes[k] || v.type || "other")}">Open</button></td></tr>`).join("");
   const pk = Object.entries(env.packages || {}).filter(([, v]) => v).map(([k, v]) => `${k} ${v}`).join(", ");
   $("#receipt").innerHTML = `<div class="card" data-receipt="${esc(cell.receipt)}">
     <h3>${esc(r.stage_label || r.stage)} · <span style="font-family:var(--mono)">${esc(r.item.id)}</span>

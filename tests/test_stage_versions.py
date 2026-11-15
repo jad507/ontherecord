@@ -31,15 +31,15 @@ EXPECTED = {
     "download": ("1", "2bcaefac55809c4876839ca5e79966b93daa018501f878e290a26a0e8faceb15"),  # typed needs/makes declared; no output changes
     "audio": ("1", "11298036ad1d6a8a103ea03b6470a9542ad6c47c0f57082474798d7b30b99a7a"),  # headline declared for Compare; no output changes
     "diarize": ("2", "62be5302d1ef4a1c71a592e9656da406ef93cc9ead0932587c720d00e79b7a88"),  # formats branch: writes the shared formats (version raised)
-    "transcribe": ("2", "1af689eb6f53a0462f06f95cb8c80f92a81739273ca1f8010888de70ad2ec0a1"),  # formats branch: writes the shared formats (version raised)
-    "nemotron_transcribe": ("2", "bbe590f9fa0089f40470c058560379154d7365e25f78fcc4276f7a13e5927445"),  # formats branch (version raised); D5 leaves_machine check only adds to the receipt
-    "align": ("2", "3e3d7bfe8a60e524628558e07536031784ca2c3dcc7aabda88797d3c8e012ff2"),  # formats branch: writes the shared formats (version raised)
+    "transcribe": ("2", "7bf0b0cbdc86fad66514662f5fe82dfa0c6f24236ddd1874eb25e7bc2f62bdd2"),  # formats branch (version raised); later artifacts.py's RTTM check, no output change
+    "nemotron_transcribe": ("2", "394a9bfa9ccede3dafdc9893ae5ed28b91d8d3af55d4ae41beb64427792c5589"),  # formats branch (version raised); later artifacts.py's RTTM check, no output change
+    "align": ("2", "f1519174f2ab2aae6b109242e944c83d750dee5cd77ca2dd1c74c4eefd72785b"),  # formats branch (version raised); later artifacts.py's RTTM check, no output change
     "stress_set": ("1", "74f57266f21033e0f37e275f911286be8a4a3d1e449284d1e4ede3eb12271961"),  # headline declared for Compare; no output changes
-    "whistress": ("1", "05e53964a2bb0fddb2575cd71e4d7d7b3efe1a2f1a66ec74c6d8c55229995db5"),  # headline declared for Compare; no output changes
+    "whistress": ("1", "c5d434d7084c58f374f8a22169da9df3e746ffab8ef6a7dfc07c945be54c1e91"),  # D3: device settled before the key and in it (the key changes; the code that makes the marks does not)
     "stress_read": ("1", "58890068ca9470b89c3e04c71329ba81d441cde483dbeaa89265741bfbb91cd3"),  # headline; open_model's context argument; D5 leaves_machine check (receipt only): no output changes
-    "word_choices": ("3", "42cf5b6101508fb15d23478f4ae7be4a551dfb56f6b9040def24358590f3feb1"),  # formats branch: writes the shared formats (version raised)
-    "turns": ("1", "102334b9f90b3a6eabb25b465580fc5694e1d28f06b8862db559048bbc4626ba"),  # formats branch: writes the shared formats (version raised)
-    "code": ("1", "3627880ed9f178e417b1908b8ef28387ef80bb0f2d6e08625295769828590f2c"),  # formats branch (version raised); D5 leaves_machine check only adds to the receipt
+    "word_choices": ("3", "d6a750c97782f63ccb37519401bf22ddcfbebbbd65d9bcd99acb89b78cfd06ab"),  # formats branch (version raised); later artifacts.py's RTTM check, no output change
+    "turns": ("1", "c2952079af2e71ce0a77c2792871c1e23d170b9c1fb50f4fecc728ff9cc78c17"),  # formats branch (version raised); later artifacts.py's RTTM check, no output change
+    "code": ("1", "8653dcbe1015bafe52b3a98d7abdcc94d5166bfa457214d668bb4c3e7b9aaa8d"),  # formats branch (version raised); later artifacts.py's RTTM check, no output change
 }
 
 

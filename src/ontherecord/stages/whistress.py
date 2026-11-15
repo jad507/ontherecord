@@ -7,7 +7,7 @@ import json
 import re
 from pathlib import Path
 
-from .base import Check, Context, Item, Result, Setting, Stage
+from .base import Check, Context, Item, Result, Setting, Stage, UserError, torch_device
 
 # Yosha et al. 2025, Table 3: WhiStress given the true transcript.
 PUBLISHED_F1 = {"StressTest": 0.883, "StressPresso": 0.835}
@@ -76,18 +76,24 @@ class WhiStressMarks(Stage):
                                     "Hugging Face (the stress head)."),
         "backbone_revision": Setting("e8727524f962ee844a7319d92be39ac1bd25655a", "Commit of "
                                      "openai/whisper-small.en (the Whisper underneath)."),
-        "device": Setting("auto", "auto = cuda, then mps, then cpu.", choices=["auto", "cuda", "mps", "cpu"],
-                          in_key=False),
+        "device": Setting("auto", "auto = cuda, then mps, then cpu; settled before the run, and part of the key.",
+                          choices=["auto", "cuda", "mps", "cpu"]),
     }
+
+    @classmethod
+    def resolve(cls, settings: dict, machine: dict) -> dict:
+        settings["device"] = torch_device(settings["device"], machine)
+        return settings
 
     def setup(self, settings: dict, ctx: Context):
         import torch
         from huggingface_hub import hf_hub_download
 
         from . import _whistress as W
-        dev = settings["device"]
-        if dev == "auto":
-            dev = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
+        dev = settings["device"]   # settled by resolve()
+        if dev == "cuda" and not torch.cuda.is_available():
+            raise UserError("whistress: device is cuda, but this PyTorch cannot use the card.",
+                            "Run `ontherecord setup --check`, or set device: cpu.")
         files = [Path(hf_hub_download(W.WEIGHTS_REPO, f, revision=settings["weights_revision"]))
                  for f in W.WEIGHT_FILES]
         ctx.log(f"loading WhiStress ({W.BACKBONE}) on {dev}")
