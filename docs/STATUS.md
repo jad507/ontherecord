@@ -10,8 +10,11 @@ date at the end of Oct 23's and Oct 24's. The Research-a-thon write-up notes, wi
 [audit-2026-11-14.md](audit-2026-11-14.md) audits how well the program generalizes beyond the council and stress
 pipelines, and gives a numbered roadmap with the reasons, the rules that must not be broken (frozen stage outputs
 and defaults), and a done-when test per item. Read it before adding a stage, a review kind or a screen. Nothing in
-it is built yet. It has four questions waiting on Jeff, the first being whether to spend the week before Dec 1 on
-its demonstration (a codebook-driven `code` stage) or on the list below.
+it is built yet. Jeff answered two of its four questions on Nov 14: the week before Dec 1 goes to the audit's
+demonstration (D1 annotators, A1 types and readers, A3 `turns`, B1 codebooks, B2 `code` run beside
+`extract_comments`, D5 remote endpoints), ahead of "Next, in order" below; and the model reads `SPEAKER_02`, not
+names, by default. The names `code`/`lens`/`context` and the tab names are deferred until he has used them; build
+with them as working names.
 
 ## Against the original four-week plan
 
