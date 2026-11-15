@@ -174,5 +174,8 @@ If a stage's inputs trace back to different bytes of one artifact, its `same_sou
   both checks when adding routes.
 - Every download is pinned by SHA-256 in the code (bootstrap.py, model_hashes.py, install/uv-pinned.sh), never
   "the latest". To move a pin, take a release that is a few weeks old and write its digest.
+- A stage's `version` is in every key it makes. `tests/test_stage_versions.py` fails when a stage's source (or a
+  module it imports, such as `llm.py`) changes without its version; raise the version, or update the hash with a
+  comment saying why no output can change.
 - Tests: `pytest`. `tests/stages_for_tests.py` has tiny model-free stages, loaded through `ONTHERECORD_STAGES`.
   The same variable adds your own stages (`name=module:Class;...`) without changing this package.
