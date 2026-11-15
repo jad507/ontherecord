@@ -50,6 +50,7 @@ from .hashing import sha256_file, sha256_text
 from .stages.base import OPAQUE, TYPES, Item, Stage
 
 PROMPTS_DIR = Path(__file__).parent / "prompts"
+CODEBOOKS_DIR = Path(__file__).parent / "codebooks"
 YOUTUBE_ID = re.compile(r"(?:v=|youtu\.be/|/shorts/|/live/|/embed/)([A-Za-z0-9_-]{11})")
 BRACKET_ID = re.compile(r"\[([A-Za-z0-9_-]{6,})\]$")
 
@@ -149,10 +150,10 @@ def load_items(source: dict, base: Path) -> list[Item]:
 
 
 def resolve_file(value: str, base: Path) -> Path:
-    for cand in (Path(value).expanduser(), base / value, PROMPTS_DIR / value):
+    for cand in (Path(value).expanduser(), base / value, PROMPTS_DIR / value, CODEBOOKS_DIR / value):
         if cand.is_file():
             return cand.resolve()
-    raise RecipeError(f"file not found: {value} (looked beside the recipe and in {PROMPTS_DIR})")
+    raise RecipeError(f"file not found: {value} (looked beside the recipe, in {PROMPTS_DIR} and in {CODEBOOKS_DIR})")
 
 
 def resolve_settings(cls: type[Stage], given: dict, base: Path) -> tuple[dict, dict, dict]:
@@ -164,7 +165,11 @@ def resolve_settings(cls: type[Stage], given: dict, base: Path) -> tuple[dict, d
         v = given.get(k, s.default)
         if s.choices and v not in s.choices:
             raise RecipeError(f"{cls.name}.{k} = {v!r}; choose one of {s.choices}")
-        if s.kind == "file":
+        if s.kind == "file" and v in ("", None):   # an optional file left out: nothing to read or hash
+            run[k], record[k] = "", None
+            if s.in_key:
+                key[k] = None
+        elif s.kind == "file":
             path = resolve_file(str(v), base)
             text = path.read_text(encoding="utf-8")
             run[k] = text

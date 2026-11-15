@@ -91,11 +91,11 @@ def main(spec_path: str) -> int:
                         validate(path, stage.makes[art])
                     except ArtifactError as e:
                         raise ArtifactError(f"{art} ({stage.makes[art]}) is malformed: {e}") from None
-                    outputs[art] = {"file": fname, "sha256": sha256_file(path), "bytes": path.stat().st_size,
-                                    "external": external}
+                    outputs[art] = {"file": fname, "type": stage.makes[art], "sha256": sha256_file(path),
+                                    "bytes": path.stat().st_size, "external": external}
                 elapsed = round(time.perf_counter() - t1, 2)
                 receipt = {
-                    "receipt_version": 1, "stage": stage.name, "stage_label": stage.label,
+                    "receipt_version": 2, "stage": stage.name, "stage_label": stage.label,
                     "stage_version": stage.version, "item": item.as_dict(), "key": it["key"],
                     "settings": spec["record_settings"], "inputs": it["inputs"], "outputs": outputs,
                     "checks": [c.as_dict() for c in res.checks], "metrics": res.metrics, "tools": res.tools,

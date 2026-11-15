@@ -2,8 +2,8 @@
 Speech's plugin as its model card sets it up (nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B-FP8, "Inference Setup
 and Prompts", read Nov 2, 2026), plus vLLM's expert offloading for cards smaller than the 48 GB the card lists.
 
-It makes what `diarize` and `transcribe` make together (the transcript, both RTTMs and the diarization stats), so
-`align`, `blocks` and everything after read it unchanged, and `nemotron_raw`: every response as the server sent it.
+It makes `transcript`, segments that already carry speakers and word times (so `turns`, `code` and everything after
+take it directly, with no `align`), and `nemotron_raw`: every response as the server sent it.
 The server runs from its own environment (install/nemotron-vllm.sh), named in the machine config as
 `tools: {nemotron_vllm: .../bin/vllm}`.
 """
@@ -21,6 +21,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from ..artifacts import segments, write_json
 from .base import Check, Context, Item, Result, Setting, Stage
 
 REPO = "nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B-FP8"
@@ -49,11 +50,12 @@ class NemotronTranscribe(Stage):
     next."""
     name = "nemotron_transcribe"
     label = "Transcribe and diarize (Nemotron 3.5)"
-    version = "1"
+    version = "2"
     group = "audio"
     gpu = True
     needs = {"audio": "audio"}
-    makes = {"transcript": "other", "rttm_standard": "other", "rttm_exclusive": "other", "diarization_stats": "other", "nemotron_raw": "other"}
+    makes = {"transcript": "segments", "nemotron_raw": "other"}
+    headline = ("words", "words")
     packages = ("soundfile", "numpy")
     settings = {
         "model": Setting(REPO, "Hugging Face repo in the local cache (ontherecord models get "
@@ -147,19 +149,14 @@ class NemotronTranscribe(Stage):
         elapsed = time.time() - t0
 
         segs = segments_from_words(words)
-        excl = exclusive_turns(turns)
-        (out / "transcript.json").write_text(json.dumps({"segments": segs}, indent=1, ensure_ascii=False),
-                                             encoding="utf-8")
-        write_rttm(turns, item.id, out / "standard.rttm")
-        write_rttm(excl, item.id, out / "exclusive.rttm")
-        st = {"standard": turn_stats(turns), "exclusive": turn_stats(excl), "duration_s": round(duration, 1)}
-        (out / "stats.json").write_text(json.dumps(st, indent=1), encoding="utf-8")
+        write_json(out / "transcript.json", segments(segs, "segment"))
         (out / "raw.json").write_text(json.dumps({"pieces": raw}, indent=1, ensure_ascii=False), encoding="utf-8")
+        st = turn_stats(turns)   # the server's own diarization: speakers and speech, for the checks and metrics
 
         n_words = sum(len(s["text"].split()) for s in segs)
         minutes = duration / 60 if duration else 0
         wpm = n_words / minutes if minutes else 0
-        n_spk = st["standard"]["speaker_count"]
+        n_spk = st["speaker_count"]
         checks = [
             Check("answers", "fail" if problems else "ok", len(problems),
                   "; ".join(problems) if problems else f"{len(pieces)} of {len(pieces)} pieces aligned"),
@@ -178,11 +175,11 @@ class NemotronTranscribe(Stage):
                   if len(pieces) > 1 else "one piece"),
         ]
         return Result(
-            files={"transcript": "transcript.json", "rttm_standard": "standard.rttm",
-                   "rttm_exclusive": "exclusive.rttm", "diarization_stats": "stats.json", "nemotron_raw": "raw.json"},
+            files={"transcript": "transcript.json", "nemotron_raw": "raw.json"},
             checks=checks, device="server",
             metrics={"segments": len(segs), "words": n_words, "duration_s": round(duration, 1),
-                     "pieces": len(pieces), "speaker_count": n_spk, "llm_calls": len(pieces),
+                     "pieces": len(pieces), "speaker_count": n_spk, "speakers": n_spk, "speech_s": st["speech_s"],
+                     "overlap_s": st["overlap_s"], "llm_calls": len(pieces),
                      "input_tokens": tokens_in, "output_tokens": tokens_out,
                      "gen_tokens_per_s": round(tokens_out / elapsed, 2) if elapsed else None,
                      "audio_minutes_per_minute": round(duration / elapsed, 3) if elapsed else None},
@@ -414,33 +411,13 @@ def segments_from_words(words: list[dict], gap: float = 1.0, longest: float = 30
         cur["end"] = max(cur["end"], w["end"])
     if cur:
         segs.append(cur)
-    return [{"start": s["start"], "end": s["end"], "text": "".join(w["word"] for w in s["words"]).strip(),
-             "speaker": s["speaker"], "words": s["words"]} for s in segs]
-
-
-def exclusive_turns(turns: list[dict]) -> list[dict]:
-    """One speaker at a time: where turns overlap, the one that began most recently (the interruption) holds the
-    floor. pyannote's exclusive answer is frame-wise and may differ."""
-    ordered = sorted(turns, key=lambda t: (t["start"], t["end"]))
-    points = sorted({t["start"] for t in turns} | {t["end"] for t in turns})
-    out, active, j = [], [], 0
-    for a, b in zip(points, points[1:]):
-        while j < len(ordered) and ordered[j]["start"] <= a:
-            active.append(ordered[j])
-            j += 1
-        active = [t for t in active if t["end"] > a]
-        if not active:
-            continue
-        spk = max(active, key=lambda t: t["start"])["speaker"]
-        if out and out[-1]["speaker"] == spk and out[-1]["end"] == a:
-            out[-1]["end"] = b
-        else:
-            out.append({"start": a, "end": b, "speaker": spk})
-    return out
+    return [{"id": f"s{i:04d}", "start": s["start"], "end": s["end"],
+             "text": "".join(w["word"] for w in s["words"]).strip(), "speaker": s["speaker"], "words": s["words"]}
+            for i, s in enumerate(segs)]
 
 
 def turn_stats(turns: list[dict]) -> dict:
-    """The diarize stage's stats, from plain turns: speech per speaker, speech overall, and overlap."""
+    """Speakers, speech per speaker, speech overall, and overlap, from the server's diarization turns."""
     spk: dict[str, float] = {}
     for t in turns:
         spk[t["speaker"]] = spk.get(t["speaker"], 0.0) + t["end"] - t["start"]
@@ -457,10 +434,3 @@ def turn_stats(turns: list[dict]) -> dict:
     total = sum(spk.values())
     return {"speaker_count": len(spk), "speakers": {k: round(v, 3) for k, v in sorted(spk.items())},
             "speech_s": round(union, 1), "overlap_s": round(max(0.0, total - union), 1)}
-
-
-def write_rttm(turns: list[dict], file_id: str, path: Path) -> None:
-    with open(path, "w", encoding="utf-8") as f:
-        for t in sorted(turns, key=lambda t: (t["start"], t["end"])):
-            f.write(f"SPEAKER {file_id} 1 {t['start']:.3f} {t['end'] - t['start']:.3f} <NA> <NA> {t['speaker']} "
-                    "<NA> <NA>\n")

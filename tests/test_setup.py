@@ -99,11 +99,12 @@ def test_transcript_recipe_writes_this_machines_settings(tmp_path):
     text = presets.transcript_recipe([str(media), "https://www.youtube.com/watch?v=dQw4w9WgXcQ"], with_comments=True,
                                      language="", choice=choice)
     r = recipe_from_text(text, tmp_path)
-    assert [s.name for s in r.stages] == ["download", "audio", "diarize", "transcribe", "align", "blocks",
-                                          "extract_comments"]
+    assert [s.name for s in r.stages] == ["download", "audio", "diarize", "transcribe", "align", "turns", "code"]
     tr = next(s for s in r.stages if s.name == "transcribe")
     assert tr.run_settings["compute_type"] == "int8_float16" and tr.run_settings["language"] == ""
-    ex = next(s for s in r.stages if s.name == "extract_comments")
+    ex = next(s for s in r.stages if s.name == "code")
+    assert ex.input_artifacts == {"units": "turns"} and ex.record_settings["codebook"]["file"] == "public-comment.yaml"
+    assert next(s for s in r.stages if s.name == "turns").run_settings["max_turn_s"] is None
     assert ex.run_settings["model"] == bootstrap.MODELS["gemma-4-E4B"]["file"] and ex.run_settings["offload"] == "-ngl 0"
     assert {i.id for i in r.items} == {"dQw4w9WgXcQ", "Council-meeting"}
     one = recipe_from_text(presets.transcript_recipe([str(media)], choice=choice), tmp_path)

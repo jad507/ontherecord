@@ -49,7 +49,7 @@ Do not run `clear` unless the person asked for it in so many words.
 ## The assistant's tools, and MCP
 
 `src/ontherecord/tools.py` defines the tools the in-GUI assistant uses (find_recordings, search_transcripts,
-recording_overview, read_transcript, public_comments, transcribe, jobs_status, cancel_job, devices,
+recording_overview, read_transcript, coded, transcribe, jobs_status, cancel_job, devices,
 import_device). Each answers in short plain text with quotes, times and `#play/RUN/ITEM/SECONDS` links; the ones
 that start or stop work only propose, and the person confirms. Write tool descriptions for a small model: say
 what the arguments may look like (dates, words), because a 4B model will not guess that an id can be a date. `ontherecord mcp`
@@ -91,7 +91,7 @@ costs nothing, so check it before submitting anything long.
 ## Reviews: checking by hand
 
 ```bash
-ontherecord review new RUN --kind comments|speakers|transcript   # a set from a finished run
+ontherecord review new RUN --kind codes|speakers|transcript     # a set from a finished run
 ontherecord review create SET.json                              # a set another project wrote (scripts/ has two)
 ontherecord review list --json                                  # every set: answered, left, time left, agreement
 ontherecord review score SET --json                             # the machine against the person, with sha256s
@@ -107,7 +107,7 @@ answers are the yardstick the machine is scored against. The assistant's `review
 `scripts/review_stress_clips.py` turn hands_on_dl's gold sample and AITranscribe's stress clips into sets; the
 stress one reproduces score_corpus_labels.py's blind WhiStress figure (47 of 49).
 
-A `check` set (`review new RUN --kind check [--codes "a, b, ..."]`, from a run with the `word_choices` stage) is every
+A `check` set (`review new RUN --kind check [--codes "a, b, ..."]`, from a run with `word_choices` then `turns`) is every
 speaker turn in order, checked word by word and coded on its own page, `/check#SET` (docs/checking.md): five ways
 of working, each with a tutorial. Whisper's text is shown there, so its score is post-editing, not blind. Its
 answers record which way of working made them, so `review score` compares their pace.
@@ -125,6 +125,25 @@ loading), so they improve as it does more. Language-model stages record `input_t
 files, which must stay byte-identical); the assistant logs its calls to `<workspace>/usage/assistant.jsonl`. API
 prices live in `usage.py` with the day they were read; the program never looks them up.
 
+## Artifact formats
+
+Stages declare typed inputs and outputs (`needs` and `makes` map a name to a type: media, audio, info, segments,
+speakers, annotations, table, other). An input is filled from the latest earlier step that makes its type, so
+`turns` or `code` work after Whisper, after Nemotron or after any other transcriber; `from: {units: STEP}` or
+`STEP.ARTIFACT` wires it by hand. Readers (Library, Compare, Reviews, the assistant's tools, the page) look for a
+type, never a stage name; a test fails if one names a stage. The two JSON formats are checked by the worker on
+write (`artifacts.py`): `segments/1` (units with id, start, end, and optional text, speaker, words, from) and
+`annotations/1` (codes on units, a unit's words or a span of time, by a model or a person, with the codebook's
+name and sha256). Speakers are RTTM. There is one shape per format: no reader accepts an older one.
+
+Coding: `code` applies any codebook (`src/ontherecord/codebooks/*.yaml`, or one beside the recipe) to any
+segments, by a language model that answers by unit id. `context` (unit, window, whole) and `lens` (a stance read
+before the codebook) are settings, so two runs that differ only there are comparable. `turns` merges a speaker's
+consecutive segments (`max_gap_s`, `max_turn_s`).
+
+Machine-dependent settings (`device: auto`, a compute type the card lacks) are settled before the key is made
+(`Stage.resolve`), so a key says what will run; a recipe that cannot run here is refused at plan time.
+
 ## Reading results
 
 `ontherecord show RUN_ID --json` prints the run record plus `problems`, a flat list of every warn or fail check and
@@ -136,8 +155,8 @@ every failed or blocked cell. Each cell's `receipt` is a path relative to the wo
 <workspace>/store/<stage>/<item>/<key>/   one stage's outputs for one item, and receipt.json
 ```
 
-A receipt holds `settings` (defaults included; prompt files as name, sha256 and text), `inputs` and `outputs` (paths
-and sha256), `checks`, `metrics`, `tools` and model revisions, `environment` (packages, GPU, ontherecord commit),
+A receipt (`receipt_version: 2`) holds `settings` (defaults included; prompt and codebook files as name, sha256 and
+text), `inputs` (with the step, artifact and type each came from) and `outputs` (paths, types and sha256), `checks`, `metrics`, `tools` and model revisions, `environment` (packages, GPU, ontherecord commit),
 `device` and `timing`. `ontherecord receipt RUN_ID ITEM STAGE` prints one.
 
 The GUI's HTTP API (127.0.0.1:8765 by default) serves the same: `GET /api/jobs`, `POST /api/jobs` with

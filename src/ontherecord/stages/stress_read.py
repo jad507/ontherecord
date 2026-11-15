@@ -96,6 +96,7 @@ class StressRead(Stage):
     gpu = True
     needs = {"stress_set": "other", "stress_marks": "other"}
     makes = {"stress_answers": "other"}
+    headline = ("accuracy", "of meanings right")
     settings = {
         "marks": Setting("whistress_given", "Which words are marked: WhiStress given the true transcript, WhiStress "
                          "from the audio alone, only WhiStress's single most stressed word, the set's own labels, "
@@ -120,7 +121,7 @@ class StressRead(Stage):
     }
 
     def setup(self, settings: dict, ctx: Context):
-        return open_model(settings, ctx)
+        return open_model(settings, ctx, settings["context"])
 
     def run(self, item: Item, inputs, out: Path, settings: dict, state, ctx: Context) -> Result:
         from .stress_set import read_set

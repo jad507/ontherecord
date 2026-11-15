@@ -10,6 +10,6 @@ stages:
   - audio: {channel: average}
     on_fail: continue
   - diarize: {}
-  - transcribe: {}
-  - align: {overlap_mode: standard}
-  - blocks: {}
+  - transcribe: {language: en}
+  - align: {}
+  - turns: {max_gap_s: 30, max_turn_s: null}   # as the study cut its speech blocks

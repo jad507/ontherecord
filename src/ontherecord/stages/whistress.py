@@ -69,6 +69,7 @@ class WhiStressMarks(Stage):
     gpu = True
     needs = {"stress_set": "other"}
     makes = {"stress_marks": "other"}
+    headline = ("top1", "top word right")
     packages = ("transformers", "torch", "librosa", "soundfile")
     settings = {
         "weights_revision": Setting("3641786c97df31786d2ae17bb9307f7776cf7138", "Commit of slprl/WhiStress on "

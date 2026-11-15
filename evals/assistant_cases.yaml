@@ -24,7 +24,7 @@
 - ask: What happened at the January 29 meeting?
   call: recording_overview
 - ask: Who spoke during public comment at the January 29 council meeting?
-  call: [recording_overview, public_comments]
+  call: [recording_overview, coded]
 - ask: Read me the first five minutes of the January 29 meeting.
   call: read_transcript
   args: {from_minute: 0}
@@ -55,16 +55,16 @@
 - ask: Did people support or oppose things at the January 29 meeting?
   call: recording_overview
 - ask: Overall, was the public for or against the data center?
-  call: public_comments
+  call: coded
   args: {words: data center}
 - ask: How many people spoke during public comment in the November meetings?
-  call: public_comments
-  args: {meetings: november}
+  call: coded
+  args: {recordings: november}
 - ask: How far along am I with the labeling?
   call: review_progress
 - ask: I want to check the public comments from the January 29 meeting by hand.
   call: make_review
-  args: {kind: comments}
+  args: {kind: codes}
 - ask: Help me put names to the speakers in the January 29 meeting.
   call: make_review
   args: {kind: speakers}

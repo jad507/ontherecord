@@ -60,6 +60,15 @@ def link(run_id: str, item: str, t: float = 0) -> str:
     return f"#play/{run_id}/{item}/{int(t)}"
 
 
+def coded_line(a: dict) -> str:
+    """One coded stretch for the assistant: when, who, the code, its fields, and a little of the text."""
+    fields = ", ".join(f"{k}: {v}" for k, v in a["attributes"].items() if v and len(str(v)) <= 40)
+    summary = a["attributes"].get("summary") or (a.get("text") or "")[:160]
+    who = ", ".join(a.get("speakers") or []) or "speaker"
+    return (f"[{hms(a.get('start') or 0)}] {who} {a['code']}" + (f" ({fields})" if fields else "")
+            + (f": {summary}" if summary else ""))
+
+
 class Toolbox:
     def __init__(self, cfg: MachineConfig):
         from .jobs import JobQueue
@@ -71,7 +80,7 @@ class Toolbox:
     def tools(self) -> list[Tool]:
         return [Tool("find_recordings", self.find_recordings), Tool("search_transcripts", self.search_transcripts),
                 Tool("recording_overview", self.recording_overview), Tool("read_transcript", self.read_transcript),
-                Tool("public_comments", self.public_comments),
+                Tool("coded", self.coded),
                 Tool("transcribe", self.transcribe, confirm=True), Tool("jobs_status", self.jobs_status),
                 Tool("cancel_job", self.cancel_job, confirm=True), Tool("devices", self.devices),
                 Tool("import_device", self.import_device, confirm=True), Tool("review_progress", self.review_progress),
@@ -114,8 +123,7 @@ class Toolbox:
         lines = [f"{len(recs)} recording(s):"]
         for r in recs[:MAX_LINES]:
             best = next(v for v in r["views"] if v["run_id"] == r["default_run"])
-            done = ", ".join({"align": "speakers", "transcribe": "transcript", "extract_comments": "public comments"}[h]
-                             for h in best["has"] if h in ("align", "transcribe", "extract_comments"))
+            done = ", ".join(h for h in best["has"] if h in ("transcript", "speakers", "codes"))
             dur = f"{round(r['duration_s'] / 60)} min" if r.get("duration_s") else ""
             lines.append(f"- {r['title']} ({r['date'] or 'no date'}, {dur}) id={r['id']}: {done or 'audio only'}")
         if len(recs) > MAX_LINES:
@@ -144,26 +152,26 @@ class Toolbox:
         return "\n".join(lines)
 
     def recording_overview(self, recording_id: str) -> str:
-        """Facts about one recording: date, length, how many speakers, and the public comments extracted from it
-        (who spoke, their position, a one-line summary, and when). recording_id can be the id or the title's
-        date, e.g. "October 28"."""
+        """Facts about one recording: date, length, how many speakers, and what was coded in it (for example
+        public comments: who spoke, their position, a one-line summary, and when). recording_id can be the id or
+        the title's date, e.g. "October 28"."""
         r = self._match(recording_id)
         if not r:
             return f"No single recording matches {recording_id!r}. Use find_recordings to get its id."
         v = self.library.recording(r["default_run"], r["id"])
         words = sum(len(s["text"].split()) for s in v["segments"])
-        lines = [f"{v['title']} ({v['date']}), {round((v['duration_s'] or 0) / 60)} min, id={r['id']}.",
+        lines = [f"{v['title']} ({v['date'] or 'no date'}), {round((v['duration_s'] or 0) / 60)} min, id={r['id']}.",
                  f"Transcript: {len(v['segments'])} lines, {words} words, {len(v['speakers'])} speaker label(s)."]
         fails = [p for p in v["problems"] if p["status"] == "fail"]
         if fails:
             lines.append("Warning, a check failed in this run: " + "; ".join(p["message"] for p in fails[:2]))
-        if v["comments"]:
-            lines.append(f"{len(v['comments'])} public comment(s):")
-            for c in v["comments"][:MAX_LINES]:
-                lines.append(f"- [{c['timestamp']}] {c['speaker_name'] or 'Unidentified'} ({c['position']}, "
-                             f"{c['agenda_item']}): {c['summary']} ({link(v['run_id'], r['id'], c['start_s'] or 0)})")
-        else:
-            lines.append("No public comments have been extracted from this recording yet.")
+        for c in v["codes"]:
+            book = (c.get("codebook") or {}).get("name") or c["step"]
+            lines.append(f"{len(c['annotations'])} stretch(es) coded with {book}:")
+            for a in c["annotations"][:MAX_LINES]:
+                lines.append(f"- {coded_line(a)} ({link(v['run_id'], r['id'], a.get('start') or 0)})")
+        if not v["codes"]:
+            lines.append("Nothing has been coded in this recording yet (no code step was run on it).")
         return "\n".join(lines)
 
     def read_transcript(self, recording_id: str, from_minute: int = 0, minutes: int = 10) -> str:
@@ -185,39 +193,51 @@ class Toolbox:
             prev = who
         return "\n".join(out)
 
-    def public_comments(self, words: str = "", meetings: str = "") -> str:
-        """Public comments across many meetings, already counted: how many, for and against, by agenda item and by
-        meeting, with a few examples. words narrows to comments about something (e.g. "data center"); meetings
-        narrows by title or date words (e.g. "November" or "budget"). Use it for questions about what the public
-        said overall."""
-        ws = [w for w in re.findall(r"[\w-]+", words.lower()) if len(w) > 2]
-        ms = [w for w in re.findall(r"[\w-]+", meetings.lower()) if len(w) > 1]
+    def coded(self, code: str = "", words: str = "", recordings: str = "") -> str:
+        """What was coded across many recordings, already counted: how many stretches of each code (for example
+        public_comment), by recording, the counts of each field with fixed choices (for example position:
+        support, oppose), and a few examples. code narrows to one code, e.g. "public_comment"; words narrows to
+        stretches whose text or fields mention something, e.g. "data center"; recordings narrows by title or date
+        words, e.g. "November" or "budget". Use it for questions about what people said overall."""
+        from collections import Counter
         from .library import stem
-        found, per_meeting = [], {}
+        ws = [w for w in re.findall(r"[\w-]+", words.lower()) if len(w) > 2]
+        ms = [w for w in re.findall(r"[\w-]+", recordings.lower()) if len(w) > 1]
+        want = code.strip().lower().replace(" ", "_")
+        found, per_rec = [], Counter()
         for r in self.library.recordings():
             if ms and not all(m in f"{r['title']} {r['date']}".lower() for m in ms):
                 continue
             v = self.library.recording(r["default_run"], r["id"])
-            for c in v["comments"]:
-                text = " ".join(str(c.get(k) or "") for k in ("summary", "agenda_item", "speaker_name")).lower()
-                if all(stem(w) in text for w in ws):
-                    found.append((r, v, c))
-                    per_meeting[r["title"]] = per_meeting.get(r["title"], 0) + 1
+            for c in v["codes"]:
+                for a in c["annotations"]:
+                    if want and a["code"] != want:
+                        continue
+                    text = " ".join([a.get("text", ""), *map(str, a["attributes"].values())]).lower()
+                    if all(stem(w) in text for w in ws):
+                        found.append((r, v, a))
+                        per_rec[r["title"]] += 1
         if not found:
-            scope = (f" about {words!r}" if ws else "") + (f" in meetings matching {meetings!r}" if ms else "")
-            return f"No extracted public comments{scope}. Comments exist only for recordings run with comment extraction."
-        from collections import Counter
-        pos = Counter((c.get("position") or "unclear") for _, _, c in found)
-        items = Counter((c.get("agenda_item") or "unknown") for _, _, c in found)
-        lines = [f"{len(found)} public comment(s) in {len(per_meeting)} meeting(s).",
-                 "Positions: " + ", ".join(f"{k} {n}" for k, n in pos.most_common()),
-                 "Most common agenda items: " + "; ".join(f"{k} ({n})" for k, n in items.most_common(5)),
-                 "By meeting: " + "; ".join(f"{k} ({n})" for k, n in sorted(per_meeting.items())), "Examples:"]
-        for r, v, c in found[:10]:
-            lines.append(f"- {v['date']} [{c['timestamp']}] {c['speaker_name'] or 'Unidentified'} ({c['position']}): "
-                         f"{c['summary']} ({link(v['run_id'], r['id'], c['start_s'] or 0)})")
+            scope = (f" as {code!r}" if want else "") + (f" about {words!r}" if ws else "") + (
+                f" in recordings matching {recordings!r}" if ms else "")
+            return f"Nothing coded{scope}. Codes exist only for recordings run with a code step."
+        codes = Counter(a["code"] for _, _, a in found)
+        lines = [f"{len(found)} coded stretch(es) in {len(per_rec)} recording(s).",
+                 "Codes: " + ", ".join(f"{k} {n}" for k, n in codes.most_common())]
+        fields: dict[str, Counter] = {}
+        for _, _, a in found:
+            for k, val in a["attributes"].items():
+                if val and len(str(val)) <= 30:
+                    fields.setdefault(k, Counter())[str(val)] += 1
+        for k, cnt in fields.items():
+            if len(cnt) <= 8:   # a field with few values is a choice worth counting; free text is not
+                lines.append(f"{k}: " + ", ".join(f"{x} {n}" for x, n in cnt.most_common()))
+        lines.append("By recording: " + "; ".join(f"{k} ({n})" for k, n in sorted(per_rec.items())))
+        lines.append("Examples:")
+        for r, v, a in found[:10]:
+            lines.append(f"- {v['date'] or v['title']} {coded_line(a)} ({link(v['run_id'], r['id'], a.get('start') or 0)})")
         if len(found) > 10:
-            lines.append(f"... and {len(found) - 10} more; narrow with words or meetings to see others.")
+            lines.append(f"... and {len(found) - 10} more; narrow with code, words or recordings to see others.")
         return "\n".join(lines)
 
     # ------------------------------------------------------------------ jobs
@@ -265,24 +285,25 @@ class Toolbox:
         return "\n".join(lines)
 
     def make_review(self, kind: str, recording_id: str = "", how_many: int = 100) -> str:
-        """Make a set of items for the person to check by hand in the Review tab. kind is "comments" (is each
-        sampled speech block a public comment?), "speakers" (who is each speaker label?) or "transcript" (correct
-        sampled lines). recording_id can be the id or a date like "January 29"; leave it empty to use every
-        recording in the newest run that has what the kind needs."""
+        """Make a set of items for the person to check by hand in the Review tab. kind is "codes" (check what the
+        model coded, e.g. is each sampled speaker turn a public comment?), "speakers" (who is each speaker label?)
+        or "transcript" (correct sampled lines). recording_id can be the id or a date like "January 29"; leave it
+        empty to use every recording in the newest run that has what the kind needs."""
         from . import reviews
-        need = {"comments": "extract_comments", "speakers": "align", "transcript": "transcribe"}.get(kind)
+        need = {"codes": "codes", "speakers": "speakers", "transcript": "transcript"}.get(kind)
         if not need:
-            return 'kind must be "comments", "speakers" or "transcript".'
+            return 'kind must be "codes", "speakers" or "transcript".'
         recs = self.library.recordings()
         if recording_id:
             r = self._match(recording_id)
             if not r:
                 return f"No single recording matches {recording_id!r}. Use find_recordings to get its id."
             recs = [r]
-        views = sorted((v for r in recs for v in r["views"] if need in v.get("has", []) or (
-            need == "transcribe" and "align" in v.get("has", []))), key=lambda v: v["created_utc"], reverse=True)
+        views = sorted((v for r in recs for v in r["views"] if need in v.get("has", [])),
+                       key=lambda v: v["created_utc"], reverse=True)
         if not views:
-            return f"No run has what a {kind} review needs ({need}). Transcribe{' with comments' if kind == 'comments' else ''} first."
+            return (f"No run has what a {kind} review needs ({need}). "
+                    f"Transcribe{' with comments' if kind == 'codes' else ''} first.")
         run = views[0]["run_id"]
         try:
             spec = reviews.from_run(self.cfg.workspace, run, kind, how_many,

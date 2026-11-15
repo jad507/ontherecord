@@ -21,6 +21,20 @@ TYPES = ("media", "audio", "info", "segments", "speakers", "annotations", "table
 OPAQUE = ("table", "other")
 
 
+class UserError(Exception):
+    """A failure the person can act on: what went wrong, in plain words, and what to do about it."""
+    def __init__(self, message: str, fix: str = ""):
+        super().__init__(f"{message} {fix}".strip())
+        self.message, self.fix = message, fix
+
+
+def torch_device(want: str, machine: dict) -> str:
+    """Settle a PyTorch stage's device: auto is cuda, then mps, then cpu, from what the machine has."""
+    if want != "auto":
+        return want
+    return "cuda" if machine.get("cuda") else ("mps" if machine.get("mps") else "cpu")
+
+
 @dataclass
 class Setting:
     default: Any
@@ -85,6 +99,13 @@ class Stage:
     headline: tuple[str, str] | None = None   # (metric, wording) that Compare shows for this stage, e.g. ("words", "words")
     packages: tuple[str, ...] = ()   # distributions whose versions the receipt records
     settings: dict[str, Setting] = {}
+
+    @classmethod
+    def resolve(cls, settings: dict, machine: dict) -> dict:
+        """Settle values that depend on the machine (device: auto, a compute type the card lacks) before the key is
+        made, so the key and the receipt say what will really run. `machine` is hwdetect.machine(). Raise UserError
+        when the settings cannot run here. The default changes nothing."""
+        return settings
 
     def setup(self, settings: dict, ctx: Context):
         """Load models once for a batch of items. Returns whatever run() needs as `state`."""

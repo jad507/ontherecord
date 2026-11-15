@@ -57,7 +57,7 @@ The GUI has eight tabs:
 
 - **Library**: every recording, opened in a player beside its transcript. The player plays the audio the
   transcript was made from, with a timeline of who spoke when; click a line to jump there. Search across every
-  transcript at once, and see the public comments and any failed checks for that run. **Transcribe a recording**
+  transcript at once, and see what was coded (the public comments, say) and any failed checks for that run. **Transcribe a recording**
   takes a file or a link with no recipe to write, and **Save** gives the transcript as .txt, .srt or .vtt. The GUI
   reopens where you left it (the recording, paused where you stopped; the tab; the Ask conversation; the Build
   draft) and says what finished or failed since you last looked.
@@ -78,7 +78,7 @@ The GUI has eight tabs:
   prices (details: per stage, every price tier, and speeds by software version).
 - **Results**: each run as a grid of items × stages; click a cell for its receipt and a preview of its output.
   **Compare with** lines two runs up: for each item and stage, whether the outputs are byte-identical, the headline
-  number on each side (dB lost, speakers, words, comments), and which settings or inputs made the difference.
+  number on each side (dB lost, speakers, words, codes), and which settings or inputs made the difference.
 - **Setup**: a five-step guide that opens by itself until the first recording is in: this computer (graphics card,
   driver, what each part will run on, and what to do if the driver is too old), the helper programs, the models
   (download buttons; every file is checked against its published fingerprint), the Hugging Face token (with a
@@ -118,8 +118,10 @@ claude mcp add ontherecord -- ontherecord mcp   # the assistant's tools in Claud
 | **Store** (`<workspace>/store/`) | One directory per stage × item × key, holding the outputs and `receipt.json`. Written to a temporary directory and renamed into place, so a cancelled stage never leaves something that looks finished. |
 
 Stages so far: `download` (yt-dlp) → `audio` (ffmpeg, channel policy and checks) → `diarize` (pyannote) →
-`transcribe` (faster-whisper) → `align` → `blocks` → `extract_comments` (a long-context LLM through llama-server or
-any OpenAI-compatible server). The stages port `hands_on_dl`'s scripts with the same defaults.
+`transcribe` (faster-whisper) → `align` → `turns` → `code` (any codebook, applied by a long-context LLM through
+llama-server or any OpenAI-compatible server). `nemotron_transcribe` replaces diarize, transcribe and align in one
+pass; `word_choices` gives the Check page Whisper's other likely words. Stages write shared formats (segments,
+annotations, RTTM; see AGENTS.md), so any reader works with any of them.
 
 ## Runs anywhere
 

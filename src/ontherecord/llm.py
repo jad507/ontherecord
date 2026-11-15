@@ -117,8 +117,8 @@ class ManagedLlamaServer:
         self.proc = None
 
 
-def open_model(settings: dict, ctx) -> dict:
-    """A stage's model, from its `endpoint`, `model`, `context`, `offload`, `thinking` and `seed` settings: a
+def open_model(settings: dict, ctx, context_tokens: int) -> dict:
+    """A stage's model, from its `endpoint`, `model`, `offload`, `thinking` and `seed` settings and a context size: a
     llama-server it starts (endpoint 'managed') or a server already running. Returns the stage state: `llm`, the
     `server` to stop in teardown (or None), and `tools` for the receipt."""
     state = {"server": None}
@@ -129,7 +129,7 @@ def open_model(settings: dict, ctx) -> dict:
         if not model.is_file():
             raise FileNotFoundError(f"model not found: {model} (set models_root in the machine config)")
         offloads = [s.strip() for s in settings["offload"].split(";") if s.strip()]
-        srv = ManagedLlamaServer(binary, model, settings["context"], offloads, ctx.scratch / "llama-server.log",
+        srv = ManagedLlamaServer(binary, model, context_tokens, offloads, ctx.scratch / "llama-server.log",
                                  log=ctx.log)
         state.update(server=srv, url=srv.url,
                      tools={"llama_server": tool_version([binary, "--version"]), "offload_used": srv.offload,

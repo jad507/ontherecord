@@ -9,6 +9,6 @@ stages:
   - download: {}
   - audio: {channel: left}
   - diarize: {}
-  - transcribe: {}
-  - align: {overlap_mode: standard}
-  - blocks: {}
+  - transcribe: {language: en}
+  - align: {}
+  - turns: {max_gap_s: 30, max_turn_s: null}   # as the study cut its speech blocks

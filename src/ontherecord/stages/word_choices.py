@@ -1,7 +1,7 @@
 """Word choices: for every word Whisper was unsure of, the few words it would have said instead, each with a time.
 
-What the transcript checker (the Check page) offers on a key press. It reads a transcript Whisper already made
-(align's, so each line keeps its speaker) and the audio, and does not transcribe again: the text being checked is
+What the transcript checker (the Check page) offers on a key press. It reads segments Whisper already made (the
+latest, usually align's, so each keeps its speaker and id) and the audio, and does not transcribe again: the text being checked is
 exactly the text that was made. For each stretch of lines up to 30 seconds long:
 
 1. Forced alignment of the transcript's own tokens (faster-whisper's word timestamps, run on the given text):
@@ -18,11 +18,11 @@ The probabilities are Whisper's own, conditional on the transcript's words befor
 """
 from __future__ import annotations
 
-import json
 import re
 import time
 from pathlib import Path
 
+from ..artifacts import load_segments, segments, write_json
 from .base import Check, Context, Item, Result, Setting, Stage
 from .transcribe import Transcribe
 
@@ -93,17 +93,19 @@ class WordChoices(Stage):
     Use the same Whisper model as the transcript so the probabilities are the ones that made it."""
     name = "word_choices"
     label = "Word choices (for checking by hand)"
-    version = "2"
+    version = "3"
     group = "audio"
     gpu = True
-    needs = {"audio": "audio", "aligned": "other"}
-    makes = {"words": "other"}
+    needs = {"audio": "audio", "units": "segments"}
+    makes = {"words": "segments"}
+    headline = ("with_choices", "words with choices")
     packages = ("faster-whisper", "ctranslate2")
     settings = {
         "model": Transcribe.settings["model"],
         "compute_type": Transcribe.settings["compute_type"],
         "device": Transcribe.settings["device"],
-        "language": Setting("en", "Language code of the transcript."),
+        "language": Setting("", "Language code of the transcript; empty = the language its transcriber found "
+                            "(else en)."),
         "doubt_below": Setting(0.8, "A word is doubtful when Whisper gave one of its tokens less than this "
                                     "probability; only doubtful words get choices."),
         "min_p": Setting(0.03, "A choice must have at least this probability where the doubtful token was."),
@@ -115,20 +117,25 @@ class WordChoices(Stage):
                          in_key=False),
     }
 
+    @classmethod
+    def resolve(cls, settings: dict, machine: dict) -> dict:
+        return Transcribe.resolve.__func__(cls, settings, machine)
+
     def setup(self, settings: dict, ctx: Context):
         state = Transcribe.setup(self, settings, ctx)
         state["batch"] = int(settings["batch"]) or _auto_batch(state["device"])
         ctx.log(f"decoding {state['batch']} prompts at a time")
         from faster_whisper.tokenizer import Tokenizer
         m = state["model"]
-        state["tok"] = Tokenizer(m.hf_tokenizer, m.model.is_multilingual, task="transcribe",
-                                 language=settings["language"] or "en")
+        state["Tokenizer"] = lambda lang: Tokenizer(m.hf_tokenizer, m.model.is_multilingual, task="transcribe",
+                                                    language=lang)
         return state
 
     def run(self, item: Item, inputs, out: Path, settings: dict, state, ctx: Context) -> Result:
         from faster_whisper.audio import decode_audio
-        aligned = json.loads(inputs["aligned"].read_text(encoding="utf-8"))
-        segs = [s for s in aligned["segments"] if s.get("text", "").strip()]
+        doc = load_segments(inputs["units"])
+        segs = [s for s in doc["units"] if s.get("text", "").strip()]   # a unit with no text has no words to check
+        state["tok"] = state["Tokenizer"](settings["language"] or doc.get("language") or "en")
         audio = decode_audio(str(inputs["audio"]), sampling_rate=SR)
         t0 = time.time()
         timing = {"encode_align_s": 0.0, "line_encode_s": 0.0, "distributions_s": 0.0, "completions_s": 0.0}
@@ -140,14 +147,16 @@ class WordChoices(Stage):
             offered += o
             for i, ws in zip(g, words_by_seg):
                 s = segs[i]
-                result_segs.append({"start": s["start"], "end": s["end"], "speaker": s.get("speaker", ""),
+                result_segs.append({"id": s["id"], "start": s["start"], "end": s["end"],
+                                    **({"speaker": s["speaker"]} if "speaker" in s else {}),
                                     "text": s["text"].strip(), "words": ws})
             if n and n % 25 == 0:
                 ctx.log(f"{item.id}: {n}/{len(groups)} stretches, {offered} words with choices")
-        (out / "words.json").write_text(json.dumps({"model": settings["model"], "segments": result_segs},
-                                                   indent=1, ensure_ascii=False), encoding="utf-8")
+        out_doc = segments(result_segs, doc["unit"])
+        out_doc.update(language=state["tok"].language_code, model=settings["model"])
+        write_json(out / "words.json", out_doc)
         total = sum(len(s["words"]) for s in result_segs)
-        timed = sum(1 for s in result_segs for w in s["words"] if w["e"] > w["s"])
+        timed = sum(1 for s in result_segs for w in s["words"] if w["end"] > w["start"])
         share = timed / total if total else 0.0
         return Result(
             files={"words": "words.json"}, device=state["device"],
@@ -253,9 +262,11 @@ class WordChoices(Stage):
         by_seg: list[list[dict]] = [[] for _ in segs]
         offered = 0
         for j, w in enumerate(words):
-            d = {"w": w["text"].strip(), "s": round(w["start"], 3), "e": round(w["end"], 3), "p": round(w["p"], 4)}
+            d = {"start": round(w["start"], 3), "end": round(w["end"], 3), "word": w["text"].strip(),
+                 "p": round(w["p"], 4)}
             if alts.get(j):
-                d["alts"] = sorted(alts[j], key=lambda x: -x["p"])[:st["choices"]]
+                d["alts"] = [{"word": x["t"], "p": x["p"], "replaces": x["n"]}
+                             for x in sorted(alts[j], key=lambda x: -x["p"])[:st["choices"]]]
                 offered += 1
             by_seg[seg_of[w["tokens"][0]]].append(d)
         return by_seg, len(doubts), offered

@@ -104,30 +104,33 @@ function readWidget(stageIdx, key, spec) {
 
 const stepName = (st) => st.as || st.name;
 
+// An input is filled by the latest earlier stage making its type (recipe.wire_key): table and other go by name too.
+const wireKey = (name, type) => (["table", "other"].includes(type) ? `${type}:${name}` : type);
 function renderStages() {
-  const producers = {};  // artifact -> names of the earlier stages that make it, in order
+  const producers = {};  // wire key -> names of the earlier stages that make one, in order
   const typeCount = {};
   form.stages.forEach((st) => { typeCount[st.name] = (typeCount[st.name] || 0) + 1; });
   $("#stages").innerHTML = form.stages.map((st, i) => {
     const d = DEFS[st.name];
     const from = st.from || {};
-    const missing = d.needs.filter((n) => !(producers[n] || []).length);
-    const wiring = d.needs.filter((n) => (producers[n] || []).length > 1 || from[n]).map((n) => {
-      const opts = producers[n] || [];
+    const needs = Object.keys(d.needs), wk = (n) => wireKey(n, d.needs[n]);
+    const missing = needs.filter((n) => !(producers[wk(n)] || []).length);
+    const wiring = needs.filter((n) => (producers[wk(n)] || []).length > 1 || from[n]).map((n) => {
+      const opts = producers[wk(n)] || [];
       const latest = opts[opts.length - 1];
       const bad = from[n] && !opts.includes(from[n]);
-      return `<label>${esc(n)} from <select id="from-${i}-${esc(n)}">
+      return `<label>${esc(n)} (${esc(d.needs[n])}) from <select id="from-${i}-${esc(n)}">
           <option value="">the latest (${esc(latest || "none")})</option>
           ${opts.map((o) => `<option ${from[n] === o ? "selected" : ""}>${esc(o)}</option>`).join("")}
           ${bad ? `<option selected value="${esc(from[n])}">${esc(from[n])} (not an earlier stage)</option>` : ""}</select></label>`;
     }).join("");
     const named = typeCount[st.name] > 1 || (st.as && st.as !== st.name);
-    d.makes.forEach((m) => (producers[m] = producers[m] || []).push(stepName(st)));
+    Object.entries(d.makes).forEach(([m, t]) => { const k = wireKey(m, t); if (!(producers[k] || []).includes(stepName(st))) (producers[k] = producers[k] || []).push(stepName(st)); });
     const rows = Object.entries(d.settings).map(([k, spec]) => settingWidget(i, k, spec, k in st.settings ? st.settings[k] : spec.default)).join("");
     return `<div class="stage">
       <div class="stage-head"><span class="num">${i + 1}</span><span class="title">${esc(d.label)}</span>
         ${named ? `<input class="step-name" id="as-${i}" value="${esc(stepName(st))}" title="This stage's name in the run, so later stages can take their input from it">` : ""}
-        <span class="flow">${d.needs.length ? esc(d.needs.join(", ")) + " → " : ""}${esc(d.makes.join(", "))}${d.gpu ? " · GPU" : ""}</span>
+        <span class="flow">${needs.length ? esc(needs.map((n) => `${n} (${d.needs[n]})`).join(", ")) + " → " : ""}${esc(Object.entries(d.makes).map(([m, t]) => `${m} (${t})`).join(", "))}${d.gpu ? " · GPU" : ""}</span>
         <span class="tools">
           <button class="small secondary" data-move="${i}:-1" title="Move up">↑</button>
           <button class="small secondary" data-move="${i}:1" title="Move down">↓</button>
@@ -159,7 +162,7 @@ function readForm() {
     const as = $(`#as-${i}`);
     if (as) st.as = as.value.trim() === st.name ? "" : as.value.trim();
     st.from = {};
-    for (const n of d.needs) { const sel = $(`#from-${i}-${n}`); if (sel && sel.value) st.from[n] = sel.value; }
+    for (const n of Object.keys(d.needs)) { const sel = $(`#from-${i}-${n}`); if (sel && sel.value) st.from[n] = sel.value; }
   });
 }
 
@@ -238,8 +241,10 @@ function editPrompt(i, key) {
 }
 
 async function loadRecipe(file) {
-  try {
-    const text = await api(`/api/recipes/${encodeURIComponent(file)}`);
+  try { await loadRecipeText(await api(`/api/recipes/${encodeURIComponent(file)}`)); msg(`Loaded ${file}`, "ok"); }
+  catch (err) { msg(err.message, "err"); }
+}
+async function loadRecipeText(text) {
     const raw = await api("/api/raw", { json: { text } });
     const src = raw.source || {};
     form = { name: raw.name || "", description: (raw.description || "").trim(), urls: (src.urls || []).join("\n"),
@@ -253,8 +258,6 @@ async function loadRecipe(file) {
     $("#r-urls").value = form.urls; $("#r-files").value = form.files;
     renderStages();
     $("#plan").innerHTML = "";
-    msg(`Loaded ${file}`, "ok");
-  } catch (err) { msg(err.message, "err"); }
 }
 $("#recipe-pick").addEventListener("change", (e) => e.target.value && loadRecipe(e.target.value));
 
@@ -465,7 +468,7 @@ function renderReceipt(r, cell) {
   const checks = [...(cell.run_checks || []), ...(r.checks || [])].map(li).join("") || `<li class="muted">This stage has no checks.</li>`;
   const inputs = Object.entries(r.inputs || {}).map(([k, v]) => `<tr><td>${esc(k)}</td><td class="v">from ${esc(v.from_step || v.from_stage)} <span class="hash">${esc((v.sha256 || "").slice(0, 16))}</span></td></tr>`).join("") || `<tr><td colspan="2" class="muted">${esc(r.item.url || r.item.path || "")}</td></tr>`;
   const outputs = Object.entries(r.outputs || {}).map(([k, v]) => `<tr><td>${esc(k)}</td><td class="v">${esc(v.file.split(/[\\/]/).pop())} · ${(v.bytes / 1024).toFixed(0)} KB <span class="hash">${esc(v.sha256.slice(0, 16))}</span>
-    <button class="small secondary" data-preview="${esc(k)}">Open</button></td></tr>`).join("");
+    <button class="small secondary" data-preview="${esc(k)}" data-type="${esc(v.type || "other")}">Open</button></td></tr>`).join("");
   const pk = Object.entries(env.packages || {}).filter(([, v]) => v).map(([k, v]) => `${k} ${v}`).join(", ");
   $("#receipt").innerHTML = `<div class="card" data-receipt="${esc(cell.receipt)}">
     <h3>${esc(r.stage_label || r.stage)} · <span style="font-family:var(--mono)">${esc(r.item.id)}</span>
@@ -491,13 +494,13 @@ $("#receipt").addEventListener("click", async (e) => {
   const b = e.target.closest("button[data-preview]");
   if (!b) return;
   const receipt = b.closest("[data-receipt]").dataset.receipt;
-  const name = b.dataset.preview;
+  const name = b.dataset.preview, type = b.dataset.type;
   const url = `/api/output?receipt=${encodeURIComponent(receipt)}&name=${encodeURIComponent(name)}`;
-  if (["audio", "media"].includes(name)) {
+  if (["audio", "media"].includes(type)) {
     return openModal(`<h3>${esc(name)}</h3><audio controls preload="metadata" style="width:100%" src="${url}"></audio>`);
   }
   const data = await api(url).catch((err) => `Could not open: ${err.message}`);
-  openModal(`<h3>${esc(name)}</h3>${previewHtml(name, data)}`);
+  openModal(`<h3>${esc(name)} <span class="muted">(${esc(type)})</span></h3>${previewHtml(type, data)}`);
 });
 
 function table(rows, cols) {
@@ -505,12 +508,22 @@ function table(rows, cols) {
     `<tr>${cols.map(([, f]) => `<td>${esc(f(r))}</td>`).join("")}</tr>`).join("")}</table>`;
 }
 const hms = (s) => { s = Math.floor(s); return `${Math.floor(s / 3600)}:${String(Math.floor(s % 3600 / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`; };
-function previewHtml(name, d) {
+// Previews by artifact type (artifacts.py), never by stage: any segments as one table, any annotations as another
+// with a column per attribute present.
+function previewHtml(type, d) {
   if (typeof d === "string") return `<pre>${esc(d)}</pre>`;
-  if (name === "blocks") return `<p class="muted">${esc(d.title)} · ${d.blocks.length} blocks</p>` + table(d.blocks, [["#", (b) => b.block_id], ["time", (b) => `${hms(b.start)}–${hms(b.end)}`], ["speaker", (b) => b.speaker], ["category", (b) => b.category], ["text", (b) => b.text]]);
-  if (name === "transcript") return table(d.segments, [["start", (s) => hms(s.start)], ["end", (s) => hms(s.end)], ["text", (s) => s.text], ["logprob", (s) => s.avg_logprob]]);
-  if (name === "aligned") return table(d.segments, [["start", (s) => hms(s.start)], ["speaker", (s) => s.speaker], ["text", (s) => s.text]]);
-  if (name === "comments") return `<p class="muted">${d.comments.length} comments · ${d.windows} window(s) · ${d.failed_windows} unparsed</p>` + table(d.comments, [["#", (c) => c.comment_number], ["time", (c) => c.timestamp], ["speaker", (c) => c.speaker_name], ["position", (c) => c.position], ["agenda item", (c) => c.agenda_item], ["summary", (c) => c.summary]]);
+  if (type === "segments") {
+    const u = d.units || [], has = (k) => u.some((x) => x[k] != null && x[k] !== "");
+    return `<p class="muted">${u.length} ${esc(d.unit)}s${d.language ? ` · ${esc(d.language)}` : ""}</p>` + table(u, [["id", (s) => s.id],
+      ["start", (s) => hms(s.start)], ["end", (s) => hms(s.end)], ...(has("speaker") ? [["speaker", (s) => s.speaker]] : []),
+      ["text", (s) => s.text || ""], ...(has("words") ? [["words", (s) => (s.words || []).length]] : []), ...(has("from") ? [["from", (s) => (s.from || []).join(" ")]] : [])]);
+  }
+  if (type === "annotations") {
+    const a = d.annotations || [], attrs = [...new Set(a.flatMap((x) => Object.keys(x.attributes || {})))];
+    const target = (t) => t.units ? t.units.join(" ") : t.unit ? `${t.unit} words ${t.word_from}–${t.word_to}` : `${hms(t.start)}–${hms(t.end)}`;
+    return `<p class="muted">${a.length} annotations · ${esc(d.codebook ? d.codebook.name : "no codebook")} · by ${esc(d.by.kind)} ${esc(d.by.id)}</p>`
+      + table(a, [["id", (x) => x.id], ["target", (x) => target(x.target)], ["code", (x) => x.code], ...attrs.map((k) => [k, (x) => (x.attributes || {})[k] ?? ""])]);
+  }
   return `<pre>${esc(JSON.stringify(d, null, 1))}</pre>`;
 }
 
@@ -573,7 +586,7 @@ async function openPlayer(run, item, t = null, { switchTab = true, autoplay = tr
     <div class="legend-spk">${spk.length ? spk.slice(0, 16).map((s) => `<span><span class="chip" style="background:${color(s)}"></span>${esc(s)} · ${esc(fmtDur(d.speakers[s]))}</span>`).join("") + (spk.length > 16 ? `<span class="muted">+${spk.length - 16} more</span>` : "")
       : `<span class="muted">${d.segments.length ? "No speaker labels in this run." : "No transcript in this run."}</span>`}</div>
     <div class="ptabs"><button class="small" data-ptab="lines">Transcript (${d.segments.length})</button>
-      <button class="small secondary" data-ptab="comments">Comments (${d.comments.length})</button>
+      <button class="small secondary" data-ptab="codes">Codes (${d.codes.reduce((n, c) => n + c.annotations.length, 0)})</button>
       <span class="muted" style="font-size:12px">Save: <a href="#" data-save="txt">.txt</a> · <a href="#" data-save="srt">.srt</a> · <a href="#" data-save="vtt">.vtt</a></span>
       <span class="grow"></span><input id="line-filter" type="search" placeholder="Find in this recording" style="width:200px">
       <label class="muted" style="font-size:12px"><input type="checkbox" id="follow" checked> Follow playback</label></div>
@@ -599,11 +612,11 @@ function setSource(kind, t = null, autoplay = true) {
 function renderLines(which, filter = "") {
   const d = playing, words = filter.toLowerCase().split(/\s+/).filter(Boolean);
   document.querySelectorAll("[data-ptab]").forEach((b) => b.classList.toggle("secondary", b.dataset.ptab !== which));
-  if (which === "comments") {
-    $("#lines").innerHTML = d.comments.map((c) => `<div class="cmt" data-t="${c.start_s}">
-      <b>${esc(c.timestamp)}</b> · ${esc(c.speaker_name || "Unidentified")}${c.residence_or_affiliation ? `, ${esc(c.residence_or_affiliation)}` : ""}
-      · <span class="badge">${esc(c.position || "")}</span><div class="muted">${esc(c.agenda_item || "")}</div><div>${esc(c.summary || "")}</div></div>`).join("")
-      || `<p class="muted" style="padding:8px">No comments were extracted in this run.</p>`;
+  if (which === "codes") {   // every annotations artifact in the run, by step
+    $("#lines").innerHTML = d.codes.map((c) => `<div class="muted" style="padding:6px 8px">${esc(c.step)} · ${esc(c.codebook ? c.codebook.name : "")} · by ${esc(c.by ? c.by.id : "")}</div>`
+      + c.annotations.map((a) => `<div class="cmt" data-t="${a.start ?? 0}"><b>${esc(hms(a.start ?? 0))}</b> · ${esc((a.speakers || []).join(", "))}
+        · <span class="badge">${esc(a.code)}</span>${Object.entries(a.attributes || {}).filter(([, v]) => v).map(([k, v]) => `<div><span class="muted">${esc(k)}:</span> ${esc(v)}</div>`).join("")}</div>`).join("")).join("")
+      || `<p class="muted" style="padding:8px">Nothing was coded in this run.</p>`;
     return;
   }
   $("#lines").innerHTML = d.segments.map((s, i) => (words.length && !words.every((w) => s.text.toLowerCase().includes(w))) ? ""
@@ -771,10 +784,10 @@ $("#imports").addEventListener("click", async (e) => {
   if (b.dataset.transcribe) {
     const list = await api("/api/ingests");
     const r = list.find((x) => x.run_id === b.dataset.transcribe);
-    form = { name: `transcribe ${r.name.replace(/^import /, "")}`, description: `The recordings from import ${r.run_id}`, urls: "",
-      files: r.media.join("\n"), stages: ["download", "audio", "diarize", "transcribe", "align", "blocks"].map((name) => ({ name, settings: {}, on_fail: "stop", as: "", from: {} })) };
-    $("#r-name").value = form.name; $("#r-desc").value = form.description; $("#r-urls").value = ""; $("#r-files").value = form.files;
-    renderStages();
+    const p = await api("/api/transcribe", { json: { sources: r.media, show: true } });   // the ready-made recipe (presets.py)
+    await loadRecipeText(p.recipe);
+    form.name = `transcribe ${r.name.replace(/^import /, "")}`; form.description = `The recordings from import ${r.run_id}`;
+    $("#r-name").value = form.name; $("#r-desc").value = form.description;
     showTab("build");
     msg("Check the plan, then submit. The audio stage picks the channels automatically and records why.", "ok");
   }
@@ -989,7 +1002,7 @@ $("#setup").addEventListener("click", async (e) => {
 
 // ---------------------------------------------------------------- transcribe a recording (the ready-made recipe)
 // Setup's step 5 and the Library's button: files or a link in, a job set for this computer out, followed to the end.
-const LANGS = [["", "English"], ["detect", "Detect the language"], ["es", "Spanish"], ["fr", "French"], ["de", "German"],
+const LANGS = [["", "Detect the language"], ["en", "English"], ["es", "Spanish"], ["fr", "French"], ["de", "German"],
   ["pt", "Portuguese"], ["it", "Italian"], ["zh", "Chinese"], ["ja", "Japanese"], ["ko", "Korean"], ["ar", "Arabic"], ["hi", "Hindi"], ["ru", "Russian"]];
 function transcribeForm(el, setup = null) {
   let chosen = [];
@@ -1016,7 +1029,7 @@ function transcribeForm(el, setup = null) {
       const sources = chosen.concat(typed ? [typed] : []);
       say("Queueing…");
       try {
-        const r = await api("/api/transcribe", { json: { sources, with_comments: q("comments").checked, language: lang === "" ? null : lang === "detect" ? "" : lang } });
+        const r = await api("/api/transcribe", { json: { sources, with_comments: q("comments").checked, language: lang || null } });
         say(`Queued as <code>${esc(r.run_id)}</code>.${r.estimate && r.estimate.text ? ` Expected: ${esc(r.estimate.text)}.` : ""}`, "ok");
         followJob(r.run_id, (html, kind) => { if (document.body.contains(el)) say(html, kind); });
       } catch (err) { say(esc(err.message), "err"); }
@@ -1077,7 +1090,7 @@ $("#lib-add").addEventListener("click", showAddRecording);
 // moment it is given, Back to change one. The server never sends what a set keeps hidden.
 let RV = null, rvItem = null, rvK = 2, rvShown = 0, rvPrev = null, rvWords = new Set();
 const rvBy = () => LS.get("reviewer") || "me";
-const RV_KINDS = { comments: ["Public comments", "is each sampled speech block a public comment? (needs comment extraction)"],
+const RV_KINDS = { codes: ["Codes", "check what a model coded: does each sampled unit take the code? (needs a code step)"],
   speakers: ["Speakers", "who is each speaker label? (needs speakers)"], transcript: ["Transcript lines", "correct sampled lines (needs a transcript)"],
   check: ["Check and code", "every speaker turn, word by word, with keys for Whisper's other guesses, then codes (needs word choices)"] };
 
@@ -1116,7 +1129,7 @@ async function reviewList() {
         <label><input type="checkbox" id="rv-blind"> transcript: write from scratch</label>
         <button id="rv-make">Make it</button></div>
       <div id="rv-msg" class="msg"></div>
-      <div class="muted" style="font-size:12px">Speakers makes one item per speaker label per recording. From the command line: <code>ontherecord review new RUN --kind comments</code>;
+      <div class="muted" style="font-size:12px">Speakers makes one item per speaker label per recording. From the command line: <code>ontherecord review new RUN --kind codes</code>;
         sets made by another project: <code>ontherecord review create FILE.json</code> (see scripts/).</div></div>`;
   const rows = document.querySelectorAll("#review table.data tr");
   sets.forEach((p, i) => { rows[i + 1].lastElementChild.innerHTML = `<button class="small" data-rv-open="${esc(p.id)}">${p.answered ? "Continue" : "Start"}</button>

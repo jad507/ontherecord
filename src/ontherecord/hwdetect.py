@@ -202,6 +202,30 @@ def driver_advice(system: str, gpus: list[dict]) -> dict | None:
     return None
 
 
+def ct2_compute_types(compute_cap: str | None) -> list[str]:
+    """The compute types CTranslate2 offers on a CUDA card of this compute capability. From CTranslate2 4.8.3
+    (read Nov 14, 2026): python/cpp/module.cc get_supported_compute_types, with src/cuda/utils.cc deciding float16
+    (gpu_has_fp16_tensor_cores: major >= 7) and int8 (gpu_supports_int8: major > 6, or exactly 6.1). bfloat16 and
+    int16 are left out: no stage here offers them."""
+    cc = _ver(compute_cap) or (0, 0)
+    fp16, int8 = cc[0] >= 7, cc[0] > 6 or cc == (6, 1)
+    return (["float16"] if fp16 else []) + (["int8_float16"] if fp16 and int8 else []) \
+        + (["int8", "int8_float32"] if int8 else []) + ["float32"]
+
+
+_MACHINE: dict | None = None
+
+
+def machine() -> dict:
+    """What stages settle `auto` against before a key is made (Stage.resolve): the NVIDIA cards, in CUDA's order,
+    and whether this is an Apple Silicon Mac (PyTorch's mps). Detected once per process."""
+    global _MACHINE
+    if _MACHINE is None:
+        _MACHINE = {"cuda": [{"name": g["name"], "compute_cap": g["compute_cap"]} for g in nvidia_gpus()],
+                    "mps": os_name() == "macos" and arch() == "arm64"}
+    return _MACHINE
+
+
 def detect() -> dict:
     system, a = os_name(), arch()
     gpus = nvidia_gpus() + other_gpus()

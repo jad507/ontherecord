@@ -5,18 +5,7 @@ description: >-
   after the May 22 fix). Align joins the two, so its same_source check fails; on_fail continue lets it run anyway
   to reproduce what the coders saw.
 source:
-  urls:
-    - https://www.youtube.com/watch?v=pkVzY-53sJI   # City Council Budget Hearing - October 21, 2025
-    - https://www.youtube.com/watch?v=Ffwwu-vf22M   # City Council Meeting - October 28, 2025
-    - https://www.youtube.com/watch?v=mPnWxdvDGQA   # Home Rule Transition Committee Meeting - October 29, 2025
-    - https://www.youtube.com/watch?v=nE5HiAtqwpA   # City Council Committee Meeting - November 3, 2025
-    - https://www.youtube.com/watch?v=VZRKugPc6QU   # City Council Ethics Code Work Session - November 6, 2025
-    - https://www.youtube.com/watch?v=X3DupuiqLts   # City Council Meeting - November 11, 2025
-    - https://www.youtube.com/watch?v=Wof-B6HAg2g   # Traffic Commission Meeting - November 11, 2025
-    - https://www.youtube.com/watch?v=W6aSdOttjPk   # City Council Budget Hearing - November 18, 2025
-    - https://www.youtube.com/watch?v=aZVPtb9bsEE   # City Council Special Meeting - November 20, 2025
-    - https://www.youtube.com/watch?v=Re1Nhz9g1aM   # City Council Meeting - November 25, 2025
-    - https://www.youtube.com/watch?v=WHN2o2S6X-Q   # Press Conference - Data Center Community Benefits Agreement
+  url_file: eleven-meetings.txt
 stages:
   - download: {}
   - audio: {channel: average}
@@ -25,8 +14,8 @@ stages:
   - audio: {channel: left}
   - diarize: {}
     from: {audio: audio_average}
-  - transcribe: {}
+  - transcribe: {language: en}
   - align: {}
     on_fail: continue
-  - blocks: {}
-  - extract_comments: {}
+  - turns: {max_gap_s: 30, max_turn_s: null}   # as the study cut its speech blocks
+  - code: {codebook: public-comment.yaml, instructions: extract_public_comments_v1.txt, mode: find, context: whole}

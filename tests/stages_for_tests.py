@@ -81,14 +81,16 @@ class FakeTranscribe(Stage):
     """Stands in for Whisper: one segment per line, ten seconds each."""
     name = "transcribe"
     needs = {"audio": "audio"}
-    makes = {"transcript": "other"}
+    makes = {"transcript": "segments"}
+    headline = ("words", "words")
     settings = {"deaf": Setting(False, "hear nothing, like Whisper on cancelled audio")}
 
     def run(self, item, inputs, out: Path, settings, state, ctx) -> Result:
         import json
         lines = [] if settings["deaf"] else Path(inputs["audio"]).read_text(encoding="utf-8").splitlines()
-        segs = [{"start": 10.0 * i, "end": 10.0 * i + 9, "text": t} for i, t in enumerate(lines)]
-        (out / "transcript.json").write_text(json.dumps({"segments": segs}), encoding="utf-8")
+        segs = [{"id": f"s{i:04d}", "start": 10.0 * i, "end": 10.0 * i + 9, "text": t} for i, t in enumerate(lines)]
+        (out / "transcript.json").write_text(json.dumps({"format": "segments/1", "unit": "segment", "units": segs}),
+                                             encoding="utf-8")
         return Result(files={"transcript": "transcript.json"},
                       metrics={"words": sum(len(t.split()) for t in lines), "segments": len(segs)})
 

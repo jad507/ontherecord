@@ -1,7 +1,7 @@
 name: check-words
 description: >
   Word choices for checking transcripts by hand on the Check page: the 11-minute water mains meeting and the
-  data center press conference, from their left-channel transcripts (cached). Only word_choices runs.
+  data center press conference, from their left-channel transcripts, as speaker turns of at most 60 seconds (the Check page's units).
 source:
   urls:
     - https://www.youtube.com/watch?v=fe0TavdWvEk   # Water Transmission Mains public meeting - July 9, 2025
@@ -10,6 +10,7 @@ stages:
   - download: {}
   - audio: {channel: left}
   - diarize: {}
-  - transcribe: {}
-  - align: {overlap_mode: standard}
-  - word_choices: {}
+  - transcribe: {language: en}
+  - align: {}
+  - word_choices: {language: en}
+  - turns: {}   # the Check page's units: turns of at most 60 s, with their words

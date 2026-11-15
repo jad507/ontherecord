@@ -120,6 +120,7 @@ class Audio(Stage):
     group = "audio"
     needs = {"media": "media"}
     makes = {"audio": "audio"}
+    headline = ("mono_vs_loudest_channel_db", "dB against the louder channel")
     packages = ("numpy",)
     settings = {
         "channel": Setting("auto", "How stereo becomes mono. 'average' is ffmpeg's -ac 1; on phase-inverted "

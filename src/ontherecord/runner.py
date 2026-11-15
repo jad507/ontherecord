@@ -28,7 +28,7 @@ from pathlib import Path
 from .config import MachineConfig
 from .envinfo import gpu
 from .hashing import cache_key
-from .recipe import Recipe, StageSpec, source_identity
+from .recipe import Recipe, RecipeError, StageSpec, source_identity
 from .store import Store, write_json_atomic
 
 SRC_DIR = Path(__file__).resolve().parents[1]
@@ -74,8 +74,10 @@ class Cancelled(Exception):
 
 
 class Runner:
-    def __init__(self, recipe: Recipe, cfg: MachineConfig, run_id: str | None = None, log=print):
+    def __init__(self, recipe: Recipe, cfg: MachineConfig, run_id: str | None = None, log=print,
+                 machine: dict | None = None):
         self.recipe, self.cfg, self.log = recipe, cfg, log
+        self._resolve(machine)
         self.store = Store(cfg.workspace)
         self.run_id = run_id or new_run_id(recipe.name, lambda r: self.store.run_dir(r).exists())
         self.dir = self.store.run_dir(self.run_id)
@@ -85,6 +87,25 @@ class Runner:
         self._source_ids: dict[str, str] = {}
         self._by_name = {s.name: s for s in recipe.stages}
         self._traces: dict[tuple[str, str], tuple[dict, list]] = {}
+
+    def _resolve(self, machine: dict | None) -> None:
+        """Let each stage settle machine-dependent settings (device: auto) before any key is made (audit D3)."""
+        from .stages.base import UserError
+        if machine is None:
+            from .hwdetect import machine as detect
+            machine = detect()
+        for spec in self.recipe.stages:
+            try:
+                new = spec.cls.resolve(dict(spec.run_settings), machine)
+            except UserError as e:
+                raise RecipeError(f"{spec.name}: {e}") from None
+            for k, v in new.items():
+                if v == spec.run_settings.get(k) or spec.cls.settings[k].kind == "file":
+                    continue
+                spec.run_settings[k] = v
+                spec.record_settings[k] = v
+                if spec.cls.settings[k].in_key:
+                    spec.key_settings[k] = v
 
     # ------------------------------------------------------------------ keys
     # `arts` is one item's outputs so far: step name -> artifact -> {path, sha256, step, lineage}, where lineage maps

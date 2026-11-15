@@ -29,17 +29,17 @@ NOT_OUTPUT = {"stages/base.py", "envinfo.py", "hashing.py", "bootstrap.py", "con
 # stage: (version, sha256 of its sources). Keep a comment on a row whose hash moved without a version bump.
 EXPECTED = {
     "download": ("1", "2bcaefac55809c4876839ca5e79966b93daa018501f878e290a26a0e8faceb15"),  # typed needs/makes declared; no output changes
-    "audio": ("1", "c461f7a932214bc1e2169d8b314bcafa7f140af92c7a25f0fbad227967ef7be5"),  # typed needs/makes declared; no output changes
-    "diarize": ("1", "f592837e668dbd6e683aae1d24e5cde1e3f40d4edb40d40bfc69abb5270776df"),  # typed needs/makes declared; no output changes
-    "transcribe": ("1", "3a488ac452336c91e61556c1437ba4786d1ca2c9adfceb51393100c39e3bb3e5"),  # typed needs/makes declared; no output changes
-    "nemotron_transcribe": ("1", "541fdb64d37ea6bd1ddfb0e3cd7c4353e1f5aad9d871e22d4c36d07c223037a9"),  # typed needs/makes declared; no output changes
-    "align": ("1", "c0b09e8ebed5d156436c8c6b71814887e869ef63bd8585806022ad4c11bc91bd"),  # typed needs/makes declared; no output changes
-    "blocks": ("1", "0cec25332abd5f3d6322f65fba4c76c4b7f00a04f9c4e62f5ad57b2f9a4c1245"),  # typed needs/makes declared; no output changes
-    "extract_comments": ("1", "000d2d09936a84a9489119157f5c449bb88e25fb833149de09d815a4f1474862"),  # typed needs/makes declared; no output changes
-    "stress_set": ("1", "40d809709d443fa9ac676a9e73e3a5723fdb8be392c1517b1c8b6ef2b3bc255d"),  # typed needs/makes declared; no output changes
-    "whistress": ("1", "25fe9ee8c9d5a5130b56fb31430abdac32cee5a8f860e0577c5752ee1d103835"),  # typed needs/makes declared; no output changes
-    "stress_read": ("1", "2307a41caf891c8fdef64a76ccde9aca65f9bf3c1217094be902442bddcbe5d3"),  # typed needs/makes declared; no output changes
-    "word_choices": ("2", "8d8247123bc1746f4b7ef11e1b284d75f97d3cb00205945947ec717ba5fc9b93"),  # typed needs/makes declared; no output changes
+    "audio": ("1", "11298036ad1d6a8a103ea03b6470a9542ad6c47c0f57082474798d7b30b99a7a"),  # headline declared for Compare; no output changes
+    "diarize": ("2", "62be5302d1ef4a1c71a592e9656da406ef93cc9ead0932587c720d00e79b7a88"),  # formats branch: writes the shared formats (version raised)
+    "transcribe": ("2", "1af689eb6f53a0462f06f95cb8c80f92a81739273ca1f8010888de70ad2ec0a1"),  # formats branch: writes the shared formats (version raised)
+    "nemotron_transcribe": ("2", "ceebcbe06cfce1e627c74d706394110fcb67b69ab8191e9db3b7c6a26e3a5d45"),  # formats branch: writes the shared formats (version raised)
+    "align": ("2", "3e3d7bfe8a60e524628558e07536031784ca2c3dcc7aabda88797d3c8e012ff2"),  # formats branch: writes the shared formats (version raised)
+    "stress_set": ("1", "74f57266f21033e0f37e275f911286be8a4a3d1e449284d1e4ede3eb12271961"),  # headline declared for Compare; no output changes
+    "whistress": ("1", "05e53964a2bb0fddb2575cd71e4d7d7b3efe1a2f1a66ec74c6d8c55229995db5"),  # headline declared for Compare; no output changes
+    "stress_read": ("1", "0f835fb698838a928445fe3b44b5847b616fe916dced44475d5f1f6540f433eb"),  # headline declared; open_model takes the context size as an argument (same calls, same outputs)
+    "word_choices": ("3", "42cf5b6101508fb15d23478f4ae7be4a551dfb56f6b9040def24358590f3feb1"),  # formats branch: writes the shared formats (version raised)
+    "turns": ("1", "102334b9f90b3a6eabb25b465580fc5694e1d28f06b8862db559048bbc4626ba"),  # formats branch: writes the shared formats (version raised)
+    "code": ("1", "3fd0a7aae61a8bd4747a019e3a210d6fff2d6f520c9aa627eccae9c77e35bf1e"),  # formats branch: writes the shared formats (version raised)
 }
 
 
