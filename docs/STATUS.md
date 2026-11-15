@@ -27,9 +27,29 @@ default. The names `code`/`lens`/`context` and the tab names are deferred until 
 `~/ontherecord-backups/reviews-20261114/` (and a `.tar.gz` beside it); D6 (`tests/test_stage_versions.py`: change a
 stage's code without its version and the suite fails) in `6431b9b`; D1 (answers kept per annotator; both pages ask
 for a name once per browser; old answers are the annotator "me", and all three sets score exactly as before) in
-`a7a9fa1`. Next: the `formats` branch, in the audit's order (A1+A2, A3, B1+B2, D3, D8's language default, D5,
-recipes). Jeff: when the Review tab or the Check page first asks your name, type `me` to carry on with your earlier
-answers.
+`a7a9fa1`. Jeff: when the Review tab or the Check page first asks your name, type `me` to carry on with your earlier
+answers. (Unsaved Check-page drafts from before are under an old key and will not come back.)
+
+Step 1, branch `formats` (not merged, not pushed): A1 engine `fc595c6`; A1 stages, A2, A3, B1, B2, D3, D8's
+language default and the recipes `51d2637`; D5 `422c647`. Each audit item is marked there. 124 tests pass.
+**The checkout is on `formats`**: a GUI started from it runs branch code, which does not read old runs (untyped
+records are skipped), so the Library looks empty until the rerun. Reviews and their answers are unaffected.
+
+What is left before step 2's rerun:
+
+1. B2's last line: run `recipes/jan29-left-comments.yaml` (one meeting, the code stage with the 26B model) through
+   the queue and see its codes in the Library. This doubles as the rehearsal for the rerun. Check `ontherecord jobs`
+   and `nvidia-smi` first; nothing ran on the GPU in this session.
+2. Queue the assistant eval (`ontherecord exclusive -- python evals/assistant_eval.py ...`): `public_comments` is now
+   `coded`, and the cases were updated.
+3. Tell Jeff, then step 2 (audit "Order of work"). Before it: `ontherecord plan` on the five recipes must show
+   `download` and `audio` cached for every item (checked Nov 14: they are; stress-benchmarks is cached whole, since
+   A4 is after the write-up). The baseline to compare against, per item (metrics, checks, output hashes of the five
+   old runs), is in `~/ontherecord-backups/k5-baseline/cells.json`, with the three review scores beside it.
+
+Pitfalls found: `pytest ... | tail` hides a failure's exit code (use `set -o pipefail`); `tests/test_jobs.py::
+test_cli_submit_wait_and_cancel` failed once under load and passed on every rerun (timing). `pkill -f PATTERN` from
+the Bash tool kills the tool's own shell when the pattern appears in its command line.
 
 ## Against the original four-week plan
 
