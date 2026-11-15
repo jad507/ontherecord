@@ -115,8 +115,8 @@ class ExtractComments(Stage):
     label = "Extract public comments (LLM)"
     version = "1"
     gpu = True
-    needs = ("blocks",)
-    makes = ("comments", "comments_csv")
+    needs = {"blocks": "other"}
+    makes = {"comments": "other", "comments_csv": "table"}
     settings = {
         "endpoint": Setting("managed", "'managed' starts llama-server with `model` and stops it afterwards; or "
                             "the URL of an OpenAI-compatible server already running, e.g. http://127.0.0.1:8081/v1."),

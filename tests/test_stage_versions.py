@@ -28,18 +28,18 @@ NOT_OUTPUT = {"stages/base.py", "envinfo.py", "hashing.py", "bootstrap.py", "con
 
 # stage: (version, sha256 of its sources). Keep a comment on a row whose hash moved without a version bump.
 EXPECTED = {
-    "download": ("1", "80ba96de29df746f7df731450256ffb0dab96cce79dd291b929d89e269fd9464"),
-    "audio": ("1", "fb3557681a3224e9dbd59a0b0e27db83d648e87ee520aaa84b27b5136200040f"),
-    "diarize": ("1", "17aa3d32ae86888523134c4bd16d37a2bdc61264f9d8199f28b5129285aa6b63"),
-    "transcribe": ("1", "1b6f25db94f61385d96a57edd7e2cdd101ccb0938c6ac3bd182721f538cafab4"),
-    "nemotron_transcribe": ("1", "57ebf1c4214b0798d21142a84fe6cbffa8996cc3a62c01cbb941b4b22b241fe8"),
-    "align": ("1", "89a5c12261940aa67485317c3e65889c60e50f4226779c72eaad96799b0cb224"),
-    "blocks": ("1", "f04e293756c6f8c71a02030fa17909b16f7c907ded99e9fc644fe9cde69403f3"),
-    "extract_comments": ("1", "a3b5cfcc2a14e85eda7024730898c3404dad06fbe1e5d1a8cb9b3008cf3e435c"),
-    "stress_set": ("1", "574bb01f6265860a357c4c25461dc8b4902ab60b4f4823ccd420e1354a78b022"),
-    "whistress": ("1", "5174fb585c1d87952a4f6cabbf03ef8961b9635b0830bc9cb884a0d1974235d4"),
-    "stress_read": ("1", "f9a757b04f261418f70d235c8db05815da8d2b21292af2a66c32a1c101f866e5"),
-    "word_choices": ("2", "68c732c8354af766175ce3ff6ee5916d0c01cebf8757cf89c4d775db1029f233"),
+    "download": ("1", "2bcaefac55809c4876839ca5e79966b93daa018501f878e290a26a0e8faceb15"),  # typed needs/makes declared; no output changes
+    "audio": ("1", "c461f7a932214bc1e2169d8b314bcafa7f140af92c7a25f0fbad227967ef7be5"),  # typed needs/makes declared; no output changes
+    "diarize": ("1", "f592837e668dbd6e683aae1d24e5cde1e3f40d4edb40d40bfc69abb5270776df"),  # typed needs/makes declared; no output changes
+    "transcribe": ("1", "3a488ac452336c91e61556c1437ba4786d1ca2c9adfceb51393100c39e3bb3e5"),  # typed needs/makes declared; no output changes
+    "nemotron_transcribe": ("1", "541fdb64d37ea6bd1ddfb0e3cd7c4353e1f5aad9d871e22d4c36d07c223037a9"),  # typed needs/makes declared; no output changes
+    "align": ("1", "c0b09e8ebed5d156436c8c6b71814887e869ef63bd8585806022ad4c11bc91bd"),  # typed needs/makes declared; no output changes
+    "blocks": ("1", "0cec25332abd5f3d6322f65fba4c76c4b7f00a04f9c4e62f5ad57b2f9a4c1245"),  # typed needs/makes declared; no output changes
+    "extract_comments": ("1", "000d2d09936a84a9489119157f5c449bb88e25fb833149de09d815a4f1474862"),  # typed needs/makes declared; no output changes
+    "stress_set": ("1", "40d809709d443fa9ac676a9e73e3a5723fdb8be392c1517b1c8b6ef2b3bc255d"),  # typed needs/makes declared; no output changes
+    "whistress": ("1", "25fe9ee8c9d5a5130b56fb31430abdac32cee5a8f860e0577c5752ee1d103835"),  # typed needs/makes declared; no output changes
+    "stress_read": ("1", "2307a41caf891c8fdef64a76ccde9aca65f9bf3c1217094be902442bddcbe5d3"),  # typed needs/makes declared; no output changes
+    "word_choices": ("2", "8d8247123bc1746f4b7ef11e1b284d75f97d3cb00205945947ec717ba5fc9b93"),  # typed needs/makes declared; no output changes
 }
 
 

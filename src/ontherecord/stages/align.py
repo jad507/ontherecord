@@ -38,8 +38,8 @@ class Align(Stage):
     name = "align"
     label = "Align speakers to text"
     version = "1"
-    needs = ("transcript", "rttm_standard", "rttm_exclusive")
-    makes = ("aligned",)
+    needs = {"transcript": "other", "rttm_standard": "other", "rttm_exclusive": "other"}
+    makes = {"aligned": "other"}
     settings = {
         "overlap_mode": Setting("standard", "Which diarization to align against: 'standard' keeps overlapping "
                                 "speech, 'exclusive' allows one speaker at a time.", choices=["standard", "exclusive"]),

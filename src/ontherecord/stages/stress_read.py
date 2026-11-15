@@ -94,8 +94,8 @@ class StressRead(Stage):
     label = "Read the stress marks (LLM)"
     version = "1"
     gpu = True
-    needs = ("stress_set", "stress_marks")
-    makes = ("stress_answers",)
+    needs = {"stress_set": "other", "stress_marks": "other"}
+    makes = {"stress_answers": "other"}
     settings = {
         "marks": Setting("whistress_given", "Which words are marked: WhiStress given the true transcript, WhiStress "
                          "from the audio alone, only WhiStress's single most stressed word, the set's own labels, "

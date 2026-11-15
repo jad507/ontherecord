@@ -95,7 +95,7 @@ class Runner:
                 item = next(i for i in self.recipe.items if i.id == item_id)
                 self._source_ids[item_id] = source_identity(item)
             return {"source": self._source_ids[item_id]}
-        return {n: arts[src][n]["sha256"] for n, src in spec.inputs_from.items()}
+        return {n: arts[src][spec.input_artifacts[n]]["sha256"] for n, src in spec.inputs_from.items()}
 
     def key_for(self, spec: StageSpec, item_id: str, arts: dict) -> str:
         return cache_key(spec.stage, spec.cls.version, item_id, spec.key_settings,
@@ -108,8 +108,8 @@ class Runner:
         lineage: dict[str, dict] = {}
         inherited = set()
         for n, src in spec.inputs_from.items():
-            a = arts[src][n]
-            for art, shas in [*a["lineage"].items(), (n, {a["sha256"]: src})]:
+            a = arts[src][spec.input_artifacts[n]]
+            for art, shas in [*a["lineage"].items(), (spec.input_artifacts[n], {a["sha256"]: src})]:
                 lineage.setdefault(art, {}).update(shas)
                 if len(shas) > 1:
                     inherited.add(art)
@@ -171,7 +171,8 @@ class Runner:
             "machine_config": self.cfg.describe(),
             "stages": [{"name": s.name, "stage": s.stage, "label": s.cls.label, "version": s.cls.version,
                         "group": s.cls.group, "settings": s.record_settings, "on_fail": s.on_fail,
-                        "from": s.inputs_from, "mixed": s.mixed} for s in self.recipe.stages],
+                        "needs": dict(s.cls.needs), "makes": dict(s.cls.makes), "from": s.inputs_from,
+                        "from_artifact": s.input_artifacts, "mixed": s.mixed} for s in self.recipe.stages],
             "items": [i.as_dict() for i in self.recipe.items],
             "cells": {i.id: {s.name: {"status": "pending"} for s in self.recipe.stages} for i in self.recipe.items},
         }
@@ -262,9 +263,9 @@ class Runner:
         for item, key in pending:
             inputs = {}
             for n, src in spec.inputs_from.items():
-                a = arts[item.id][src][n]
-                inputs[n] = {"path": a["path"], "sha256": a["sha256"],
-                             "from_stage": self._by_name[src].stage, "from_step": src}
+                a = arts[item.id][src][spec.input_artifacts[n]]
+                inputs[n] = {"path": a["path"], "sha256": a["sha256"], "from_stage": self._by_name[src].stage,
+                             "from_step": src, "artifact": spec.input_artifacts[n], "type": spec.cls.needs[n]}
             items.append({"item": item.as_dict(), "key": key, "inputs": inputs,
                           "entry": str(self.store.entry(spec.stage, item.id, key))})
             self._cell(item.id, spec.name, status="queued", key=key)

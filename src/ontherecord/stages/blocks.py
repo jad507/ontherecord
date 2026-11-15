@@ -29,8 +29,8 @@ class Blocks(Stage):
     name = "blocks"
     label = "Build speaker blocks"
     version = "1"
-    needs = ("aligned", "info")
-    makes = ("blocks",)
+    needs = {"aligned": "other", "info": "info"}
+    makes = {"blocks": "other"}
     settings = {
         "max_gap_s": Setting(30.0, "Merge a speaker's segments separated by at most this many seconds."),
         "recurring_threshold_s": Setting(180.0, "A speaker with more total speech than this ..."),

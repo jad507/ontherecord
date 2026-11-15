@@ -17,8 +17,8 @@ class Transcribe(Stage):
     version = "1"
     group = "audio"
     gpu = True
-    needs = ("audio",)
-    makes = ("transcript",)
+    needs = {"audio": "audio"}
+    makes = {"transcript": "other"}
     packages = ("faster-whisper", "ctranslate2")
     settings = {
         "model": Setting("large-v3", "faster-whisper model name or a local CTranslate2 directory.",

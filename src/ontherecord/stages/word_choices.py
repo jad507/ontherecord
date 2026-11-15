@@ -96,8 +96,8 @@ class WordChoices(Stage):
     version = "2"
     group = "audio"
     gpu = True
-    needs = ("audio", "aligned")
-    makes = ("words",)
+    needs = {"audio": "audio", "aligned": "other"}
+    makes = {"words": "other"}
     packages = ("faster-whisper", "ctranslate2")
     settings = {
         "model": Transcribe.settings["model"],

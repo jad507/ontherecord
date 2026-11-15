@@ -41,8 +41,8 @@ class Diarize(Stage):
     version = "1"
     group = "audio"
     gpu = True
-    needs = ("audio",)
-    makes = ("rttm_standard", "rttm_exclusive", "diarization_stats")
+    needs = {"audio": "audio"}
+    makes = {"rttm_standard": "other", "rttm_exclusive": "other", "diarization_stats": "other"}
     packages = ("pyannote.audio", "torch", "huggingface_hub")
     settings = {
         "model": Setting("pyannote/speaker-diarization-community-1", "Hugging Face pipeline id (gated: accept "

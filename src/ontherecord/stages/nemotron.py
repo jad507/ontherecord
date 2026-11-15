@@ -52,8 +52,8 @@ class NemotronTranscribe(Stage):
     version = "1"
     group = "audio"
     gpu = True
-    needs = ("audio",)
-    makes = ("transcript", "rttm_standard", "rttm_exclusive", "diarization_stats", "nemotron_raw")
+    needs = {"audio": "audio"}
+    makes = {"transcript": "other", "rttm_standard": "other", "rttm_exclusive": "other", "diarization_stats": "other", "nemotron_raw": "other"}
     packages = ("soundfile", "numpy")
     settings = {
         "model": Setting(REPO, "Hugging Face repo in the local cache (ontherecord models get "

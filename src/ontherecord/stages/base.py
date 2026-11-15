@@ -14,6 +14,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+# What an artifact is, so a stage can say "any segments" and readers can find data without knowing stage names.
+# segments and annotations are JSON formats checked on write (artifacts.py); speakers is RTTM. media, audio, info,
+# table (CSV) and other are not checked. table and other are opaque: they are wired by name, not by type.
+TYPES = ("media", "audio", "info", "segments", "speakers", "annotations", "table", "other")
+OPAQUE = ("table", "other")
+
 
 @dataclass
 class Setting:
@@ -74,8 +80,9 @@ class Stage:
     label: str = ""              # for people: "Diarize speakers"
     group: str = "core"          # which Python environment runs it (machine config `envs`)
     gpu: bool = False
-    needs: tuple[str, ...] = ()  # artifact names produced by earlier stages
-    makes: tuple[str, ...] = ()
+    needs: dict[str, str] = {}   # input name -> artifact type; filled from the latest earlier step making that type
+    makes: dict[str, str] = {}   # output name -> artifact type
+    headline: tuple[str, str] | None = None   # (metric, wording) that Compare shows for this stage, e.g. ("words", "words")
     packages: tuple[str, ...] = ()   # distributions whose versions the receipt records
     settings: dict[str, Setting] = {}
 
@@ -94,7 +101,7 @@ class Stage:
         """The declaration, as the GUI reads it."""
         return {
             "name": cls.name, "label": cls.label or cls.name, "version": cls.version, "doc": (cls.__doc__ or "").strip(),
-            "group": cls.group, "gpu": cls.gpu, "needs": list(cls.needs), "makes": list(cls.makes),
+            "group": cls.group, "gpu": cls.gpu, "needs": dict(cls.needs), "makes": dict(cls.makes),
             "settings": {k: {"default": s.default, "help": s.help, "choices": s.choices, "kind": s.kind,
                              "in_key": s.in_key} for k, s in cls.settings.items()},
         }

@@ -118,8 +118,8 @@ class Audio(Stage):
     label = "Extract audio"
     version = "1"
     group = "audio"
-    needs = ("media",)
-    makes = ("audio",)
+    needs = {"media": "media"}
+    makes = {"audio": "audio"}
     packages = ("numpy",)
     settings = {
         "channel": Setting("auto", "How stereo becomes mono. 'average' is ffmpeg's -ac 1; on phase-inverted "
