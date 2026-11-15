@@ -35,17 +35,25 @@ language default and the recipes `51d2637`; D5 `422c647`. Each audit item is mar
 **The checkout is on `formats`**: a GUI started from it runs branch code, which does not read old runs (untyped
 records are skipped), so the Library looks empty until the rerun. Reviews and their answers are unaffected.
 
-What is left before step 2's rerun:
+What is left before step 2's rerun (all need the GPU, which was busy with another program on Nov 14 at 82%, with
+12 GB of RAM free, so none of it was started):
 
-1. B2's last line: run `recipes/jan29-left-comments.yaml` (one meeting, the code stage with the 26B model) through
-   the queue and see its codes in the Library. This doubles as the rehearsal for the rerun. Check `ontherecord jobs`
-   and `nvidia-smi` first; nothing ran on the GPU in this session.
-2. Queue the assistant eval (`ontherecord exclusive -- python evals/assistant_eval.py ...`): `public_comments` is now
-   `coded`, and the cases were updated.
-3. Tell Jeff, then step 2 (audit "Order of work"). Before it: `ontherecord plan` on the five recipes must show
-   `download` and `audio` cached for every item (checked Nov 14: they are; stress-benchmarks is cached whole, since
-   A4 is after the write-up). The baseline to compare against, per item (metrics, checks, output hashes of the five
-   old runs), is in `~/ontherecord-backups/k5-baseline/cells.json`, with the three review scores beside it.
+1. The rehearsal, a small K5: `recipes/jan29-left-comments.yaml` (B2's last line: the code stage with the 26B model,
+   its codes in the Library) and `recipes/check-words.yaml` (`word_choices` was rewritten and has not run yet).
+   Expected from the old runs (in the baseline file below): Jan 29 left, 3,838 words, 7 speakers, 37 turns with
+   `max_gap_s: 30, max_turn_s: null`, and about 4 comments (the code stage's schema differs, so not exactly).
+   Check `ontherecord jobs` and `nvidia-smi` first; the queue needs `ontherecord dispatch` or the GUI.
+2. Tell Jeff, then step 2 (audit "Order of work"). `ontherecord plan` on the five recipes shows `download` and
+   `audio` cached for every item (checked Nov 14). WhiStress now reruns too (its device is in the key), and its
+   five readers are reused only if its marks come out byte-identical, so K5's 218/202 is a real test. The baseline
+   (per item: metrics, checks, output hashes of the old runs, the jan29 and water-mains runs too) is
+   `~/ontherecord-backups/k5-baseline/cells.json`, with the three review scores beside it.
+3. After the rerun: the assistant eval (`ontherecord exclusive -- .venv/bin/python evals/assistant_eval.py`); it
+   reads the real Library.
+
+Checked without a GPU: the old store's 218 transcript, aligned, word and RTTM files pass the new format checks
+when reshaped as the new stages write them; `turns` reproduces 1,325 and 2,773 blocks from the old aligned files;
+the page was driven headless against a toy run (Library, Codes tab, previews, Build, Review) with no exceptions.
 
 Pitfalls found: `pytest ... | tail` hides a failure's exit code (use `set -o pipefail`); `tests/test_jobs.py::
 test_cli_submit_wait_and_cancel` failed once under load and passed on every rerun (timing). `pkill -f PATTERN` from
