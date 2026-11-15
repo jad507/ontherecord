@@ -309,9 +309,9 @@ def cmd_review(args) -> int:
         s = reviews.load(ws, target)
         log = reviews.rows(ws, target)
         if a == "status":
-            print(json.dumps(reviews.progress(ws, target), indent=1))
+            print(json.dumps(reviews.progress(ws, target, args.by), indent=1))
         elif a == "score":
-            sc = {**reviews.score(s, log), **reviews.fingerprints(ws, target)}
+            sc = {**reviews.score(s, log, args.by), **reviews.fingerprints(ws, target)}
             if args.json:
                 print(json.dumps(sc, indent=1))
             else:
@@ -328,6 +328,9 @@ def cmd_review(args) -> int:
                     for name, b in sorted(sc["by_scheme"].items()):
                         pace = f", {b['seconds_per_audio_minute']} s per minute of audio" if b["seconds_per_audio_minute"] else ""
                         print(f"  {name:>16}: {b['turns']} turns, {b['audio_s'] / 60:.1f} min of audio{pace}")
+                for who, b in (sc.get("by_annotator") or {}).items():
+                    sub_main = {k: b[k] for k in ("agreement", "kappa", "exact", "wer") if b.get(k) is not None}
+                    print(f"  {who}: {b['scored']} scored; " + (", ".join(f"{k} {v}" for k, v in sub_main.items()) or "-"))
                 print(f"  set {sc['set_sha256'][:16]}, answers {(sc['answers_sha256'] or '-')[:16]}")
         elif a == "export":
             rows = reviews.export_rows(ws, target)
@@ -719,6 +722,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--name")
     p.add_argument("--blind", action="store_true", help="transcript: write lines from scratch instead of correcting")
     p.add_argument("--out", help="export: a CSV file (default: standard output)")
+    p.add_argument("--by", help="status/score: one annotator only (default: everyone, pooled, and each alone)")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_review)
     p = sub.add_parser("usage", help="compute hours, tokens and their API-price equivalent, and speeds by version")

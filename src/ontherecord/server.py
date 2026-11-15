@@ -336,15 +336,15 @@ def create_app(cfg: MachineConfig, dispatch: bool = True, extra_hosts: tuple[str
             raise HTTPException(422, str(e))
 
     @app.get("/api/reviews/{set_id}")
-    def review_state(set_id: str):
+    def review_state(set_id: str, by: str = "me"):
         """The set as the labelling page sees it: question, answer kind, order, and the answers so far (values
         only). Machine answers and hidden fields stay on the server."""
         from . import reviews
         s = review_or_404(set_id)
-        return {**reviews.progress(cfg.workspace, set_id), "question": s["question"], "answer": s["answer"],
+        return {**reviews.progress(cfg.workspace, set_id, by), "question": s["question"], "answer": s["answer"],
                 "order": s["order"], "prefill": s.get("prefill", False),
                 "answers": {k: {f: r[f] for f in ("value", "reason", "flags", "note", "machine_seen", "by")}
-                            for k, r in reviews.latest(reviews.rows(cfg.workspace, set_id)).items()}}
+                            for k, r in reviews.answers_of(reviews.rows(cfg.workspace, set_id), by).items()}}
 
     @app.get("/api/reviews/{set_id}/items/{item_id:path}")
     def review_item(set_id: str, item_id: str, k: int = 2):
@@ -398,10 +398,10 @@ def create_app(cfg: MachineConfig, dispatch: bool = True, extra_hosts: tuple[str
                                  headers={"Content-Disposition": f'attachment; filename="{set_id}.csv"'})
 
     @app.get("/api/reviews/{set_id}/score")
-    def review_score(set_id: str):
+    def review_score(set_id: str, by: str | None = None):
         from . import reviews
         s = review_or_404(set_id)
-        return {**reviews.score(s, reviews.rows(cfg.workspace, set_id)), **reviews.fingerprints(cfg.workspace, set_id)}
+        return {**reviews.score(s, reviews.rows(cfg.workspace, set_id), by), **reviews.fingerprints(cfg.workspace, set_id)}
 
     @app.get("/api/usage")
     def usage_summary():

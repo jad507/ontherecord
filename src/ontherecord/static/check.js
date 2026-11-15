@@ -51,7 +51,8 @@ let lastNow = -1;
 
 const setId = () => decodeURIComponent((location.hash.slice(1) || "").split("/")[0]);
 const clipUrl = (id) => `/api/reviews/${encodeURIComponent(S.set.id)}/clip/${encodeURIComponent(id)}`;
-const draftKey = () => `ck:${S.set.id}:${S.item.id}`;
+const who = () => LS.get("reviewer") || "me";   // the annotator: shared with the Review tab, asked once per browser
+const draftKey = () => `ck:${S.set.id}:${who()}:${S.item.id}`;
 
 // ---------------------------------------------------------------- audio
 const clipT = (sec) => Math.max(0, sec - (S.item.clip_start || 0));       // recording seconds -> clip seconds
@@ -324,7 +325,7 @@ async function save(step = 1, option = null) {
   emit("save");
   if (S.practice) { status("Practice: not saved."); return; }
   try {
-    await api(`/api/reviews/${encodeURIComponent(S.set.id)}/answer`, { json: { item: S.item.id, value, flags: T.flags, seconds: T.active, by: LS.get("reviewer") || "me" } });
+    await api(`/api/reviews/${encodeURIComponent(S.set.id)}/answer`, { json: { item: S.item.id, value, flags: T.flags, seconds: T.active, by: who() } });
     S.set.answers[S.item.id] = value;
     LS.del(draftKey());
     go(S.idx + step);
@@ -981,6 +982,20 @@ function startScreen() {
       so the ways can be compared. The bar at the bottom always shows what each key does; keys light up as you press them. The time on each turn counts only while you are
       working (a page left idle does not count).</p>`;
 }
+// Who is coding: asked once per browser, shown in the header, sent with every answer. Two coders on one set never
+// overwrite each other; each sees and continues only their own answers.
+function askWho() {
+  if (T) pause();
+  $("#ck-work").hidden = true; $("#ck-start").hidden = false; $("#ck-keys").innerHTML = "";
+  $("#ck-start").innerHTML = `<h2>Who is checking?</h2>
+    <p class="lede">Your name (or initials) is saved with each turn you check, so two people can check the same set without replacing each other's work.
+      This browser remembers it; change it any time with the Coder button at the top. Answers given before names were asked for are under the name "me": type me to carry on with those.</p>
+    <form id="ck-who-form" class="row" style="display:flex;gap:8px;align-items:end"><label>Name <input id="ck-who-name" value="${esc(LS.get("reviewer") || "")}" autocomplete="off" required></label>
+      <button>Continue</button></form>`;
+  $("#ck-who-name").focus();
+  $("#ck-who-form").addEventListener("submit", (e) => { e.preventDefault(); const v = $("#ck-who-name").value.trim(); if (!v) return; LS.set("reviewer", v); S.set = null; T = null; boot(); });
+}
+$("#ck-who").addEventListener("click", askWho);
 function startWork() { $("#ck-start").hidden = true; $("#ck-work").hidden = false; if (!T) return load(); S.scheme.enter?.(); render(); }
 $("#ck-help").addEventListener("click", () => { pause(); startScreen(); });
 $("#ck-tutorial").addEventListener("click", () => startTutorial());
@@ -1052,7 +1067,9 @@ async function load() {
 async function boot() {
   const id = setId();
   if (!id) { $("#ck-start").hidden = false; $("#ck-start").innerHTML = `<p>Open a checking set from the <a href="/#review">Review tab</a>, or make one: <code>ontherecord review new RUN --kind check</code> (the run needs the word_choices stage).</p>`; return; }
-  try { S.set = await api(`/api/reviews/${encodeURIComponent(id)}`); }
+  if (LS.get("reviewer") == null) return askWho();
+  $("#ck-who").textContent = `Coder: ${who()}`;
+  try { S.set = await api(`/api/reviews/${encodeURIComponent(id)}?by=${encodeURIComponent(who())}`); }
   catch (e) { $("#ck-start").hidden = false; $("#ck-start").innerHTML = `<p>No set ${esc(id)}: ${esc(e.message)}</p>`; return; }
   if (S.set.kind !== "check") { location.href = `/#review/${encodeURIComponent(id)}`; return; }
   S.set.answers ||= {};

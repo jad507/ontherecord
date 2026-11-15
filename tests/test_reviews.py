@@ -37,13 +37,64 @@ def test_blind_answers_and_what_counts_as_seen(tmp_path):
     sc = reviews.score(s, reviews.rows(tmp_path, sid))
     # scored: b1 on its first (blind) answer "no" vs yes; b3 yes vs yes. b2 was seen first; b4 unsure is not scored
     assert sc["scored"] == 2 and sc["agreement"] == 0.5 and sc["confusion"] == {"yes": {"no": 1, "yes": 1}}
-    assert reviews.latest(reviews.rows(tmp_path, sid))["b1"]["value"] == "yes"  # the latest answer wins
+    assert reviews.latest(reviews.rows(tmp_path, sid))[("b1", "me")]["value"] == "yes"  # the latest answer wins
     p = reviews.progress(tmp_path, sid)
     assert (p["answered"], p["left"], p["seconds_per_item"]) == (4, 2, 10)
     with pytest.raises(ValueError):
         reviews.answer(tmp_path, sid, "b5", "maybe")
     with pytest.raises(KeyError):
         reviews.answer(tmp_path, sid, "nope", "yes")
+
+
+def test_two_annotators_never_overwrite_each_other(tmp_path):
+    """D1: answers are kept per (item, annotator), in progress, scoring and export; seen is per annotator."""
+    sid = choice_set(tmp_path)
+    s = reviews.load(tmp_path, sid)
+    a = reviews.answer(tmp_path, sid, "b1", "yes", by="ana")
+    assert a["by"] == "ana" and a["machine_seen"] == 0
+    b = reviews.answer(tmp_path, sid, "b1", "no", by="ben")       # ana's reveal-after does not count as ben seeing it
+    assert b["machine_seen"] == 0
+    reviews.reveal(tmp_path, sid, "b3", by="ana")
+    assert reviews.answer(tmp_path, sid, "b3", "yes", by="ben")["machine_seen"] == 0
+    assert reviews.answer(tmp_path, sid, "b3", "yes", by="ana")["machine_seen"] == 1
+    log = reviews.rows(tmp_path, sid)
+    assert {k: r["value"] for k, r in reviews.answers_of(log, "ana").items()} == {"b1": "yes", "b3": "yes"}
+    assert {k: r["value"] for k, r in reviews.answers_of(log, "ben").items()} == {"b1": "no", "b3": "yes"}
+    assert reviews.progress(tmp_path, sid, "ana")["answered"] == 2 and reviews.progress(tmp_path, sid, "carl")["left"] == 6
+    assert reviews.progress(tmp_path, sid)["annotators"] == {"ana": 2, "ben": 2}
+    sc = reviews.score(s, log)       # machine: b1 yes, b3 yes. ana b1 yes (b3 seen: not scored); ben b1 no, b3 yes
+    assert sc["scored"] == 3 and sc["agreement"] == round(2 / 3, 3)
+    assert sc["by_annotator"]["ana"]["agreement"] == 1.0 and sc["by_annotator"]["ben"]["agreement"] == 0.5
+    rows = reviews.export_rows(tmp_path, sid)
+    assert sorted((r["item"], r["by"], r["answer"]) for r in rows) == [
+        ("b1", "ana", "yes"), ("b1", "ben", "no"), ("b3", "ana", "yes"), ("b3", "ben", "yes")]
+
+
+def test_old_rows_without_names_are_the_annotator_me(tmp_path):
+    sid = choice_set(tmp_path)
+    with open(tmp_path / "reviews" / sid / "answers.jsonl", "w") as fh:   # as written before annotators had names
+        fh.write(json.dumps({"item": "b1", "value": "yes", "reason": "", "flags": {}, "note": "", "seconds": 3,
+                             "machine_seen": 0, "utc": "x"}) + "\n")
+        fh.write(json.dumps({"item": "b3", "value": "no", "reason": "", "flags": {}, "note": "", "seconds": 3,
+                             "machine_seen": 0, "by": "me", "utc": "x"}) + "\n")
+    log = reviews.rows(tmp_path, sid)
+    assert set(reviews.answers_of(log, "me")) == {"b1", "b3"}
+    assert reviews.score(reviews.load(tmp_path, sid), log)["agreement"] == 0.5
+    assert {r["by"] for r in reviews.export_rows(tmp_path, sid)} == {"me"}
+
+
+STRESS_SET = Path.home() / "ontherecord-workspace"
+
+
+@pytest.mark.skipif(not (STRESS_SET / "reviews" / "stress-clips-which-word-is-stressed-20261023").is_dir(),
+                    reason="Jeff's stress review set is only on shiro")
+def test_the_stress_review_still_scores_47_of_49():
+    """R1: the answers people gave still load and score as they did (WhiStress, blind: 47 of 49)."""
+    sid = "stress-clips-which-word-is-stressed-20261023"
+    s, log = reviews.load(STRESS_SET, sid), reviews.rows(STRESS_SET, sid)
+    sc = reviews.score(s, log)
+    assert (sc["scored"], sc["answered"], sc["exact"], sc["agreement"]) == (49, 170, 0.959, 0.959)
+    assert round(sc["agreement"] * sc["scored"]) == 47
 
 
 def test_a_set_that_never_reveals(tmp_path):
@@ -147,7 +198,12 @@ def test_endpoints_keep_machine_answers_on_the_server(tmp_path):
     r = c.post(f"/api/reviews/{sid}/answer", json={"item": item, "value": "yes", "seconds": 5}).json()
     assert r["machine"] in ("yes", "no") and r["machine_seen"] == 0
     assert c.get(f"/api/reviews/{sid}").json()["answers"][item]["value"] == "yes"
-    assert c.get(f"/api/reviews/{sid}/score").json()["scored"] == 1
+    c.post(f"/api/reviews/{sid}/answer", json={"item": item, "value": "no", "by": "ana"})
+    assert c.get(f"/api/reviews/{sid}?by=ana").json()["answers"][item]["value"] == "no"   # each coder sees their own
+    assert c.get(f"/api/reviews/{sid}").json()["answers"][item]["value"] == "yes"
+    assert c.get(f"/api/reviews/{sid}?by=ben").json()["answered"] == 0
+    assert c.get(f"/api/reviews/{sid}/score").json()["scored"] == 2
+    assert c.get(f"/api/reviews/{sid}/score?by=ana").json()["scored"] == 1
     assert "stratum" in c.get(f"/api/reviews/{sid}/export.csv").text  # the export is for analysis, not the page
     assert c.get("/api/reviews/..%2F..%2Fetc").status_code == 404
     assert c.get(f"/api/reviews/{sid}/clip/{item}").status_code == 404  # this fake run has no audio

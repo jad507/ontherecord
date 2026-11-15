@@ -259,7 +259,9 @@ class Toolbox:
                     else f"; {p['left']} left" if p["left"] else "; finished")
             agree = (f"; {p['machine_label']} agreed with you on {p['agreement']:.0%} so far"
                      if p["agreement"] is not None else "")
-            lines.append(f"- {p['name']}: {p['answered']} of {p['items']} answered{left}{agree} (#review/{p['id']})")
+            who = (" (" + ", ".join(f"{b} {n}" for b, n in sorted(p["annotators"].items())) + ")"
+                   if len(p["annotators"]) > 1 else "")
+            lines.append(f"- {p['name']}: {p['answered']} of {p['items']} answered{who}{left}{agree} (#review/{p['id']})")
         return "\n".join(lines)
 
     def make_review(self, kind: str, recording_id: str = "", how_many: int = 100) -> str:

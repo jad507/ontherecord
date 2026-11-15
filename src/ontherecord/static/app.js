@@ -1085,7 +1085,7 @@ async function refreshReview(id = null) {
   id = id ?? RV?.id ?? null;
   if (!id) return reviewList();
   const fresh = !RV || RV.id !== id;
-  RV = await api(`/api/reviews/${encodeURIComponent(id)}`).catch(() => null);
+  RV = await api(`/api/reviews/${encodeURIComponent(id)}?by=${encodeURIComponent(rvBy())}`).catch(() => null);
   if (!RV) return reviewList();
   if (RV.kind === "check") { location.href = `/check#${encodeURIComponent(RV.id)}`; return; }  // its own page
   if (fresh) { rvItem = null; rvPrev = null; }
@@ -1124,6 +1124,16 @@ async function reviewList() {
 }
 
 async function reviewShow(id) {
+  if (LS.get("reviewer") == null) {  // asked once per browser: each coder's answers are kept apart
+    $("#review").innerHTML = `<div class="rv-bar"><a href="#" data-rv-list="1">← All reviews</a><b>${esc(RV.name)}</b></div>
+      <div class="imp-card" style="margin-top:12px"><h3>Who is answering?</h3>
+      <p class="muted">Your name (or initials) is saved with each answer, so two people can answer the same set without replacing each other's answers.
+        This browser remembers it; change it any time in the "answering as" box. Answers given before names were asked for are under the name "me": type me to carry on with those.</p>
+      <form id="rv-who" style="display:flex;gap:8px;align-items:end"><label>Name <input id="rv-who-name" autocomplete="off" required></label><button>Continue</button></form></div>`;
+    $("#rv-who-name").focus();
+    $("#rv-who").addEventListener("submit", (e) => { e.preventDefault(); const v = $("#rv-who-name").value.trim(); if (v) { LS.set("reviewer", v); refreshReview(RV.id); } });
+    return;
+  }
   const n = Object.keys(RV.answers).length, pace = RV.seconds_per_item;
   const left = RV.items - n;
   const head = `<div class="rv-bar"><a href="#" data-rv-list="1">← All reviews</a><b>${esc(RV.name)}</b>
@@ -1187,7 +1197,7 @@ async function rvAnswer(value, reason = "") {
     rvPrev = { id: rvItem.id, label: RV.order.indexOf(rvItem.id) + 1, mine: rvShowValue(r.value, rvItem),
       machine: r.machine === undefined ? null : rvShowValue(r.machine, rvItem) };
     const at = rvItem.id;
-    RV = await api(`/api/reviews/${encodeURIComponent(RV.id)}`);
+    RV = await api(`/api/reviews/${encodeURIComponent(RV.id)}?by=${encodeURIComponent(rvBy())}`);
     rvK = 2;
     reviewShow(rvNextOpen(at) ?? RV.order[RV.order.indexOf(at) + 1] ?? null);  // all answered: walk on, revising
   } catch (err) { $("#rv-saved").textContent = `Not saved: ${err.message}`; $("#rv-saved").className = "msg err"; }
@@ -1241,7 +1251,7 @@ $("#review").addEventListener("click", async (e) => {
   }
 });
 $("#review").addEventListener("change", async (e) => {
-  if (e.target.id === "rv-by") LS.set("reviewer", e.target.value.trim() || "me");
+  if (e.target.id === "rv-by") { LS.set("reviewer", e.target.value.trim() || "me"); rvItem = null; return refreshReview(); }  // another coder: their own answers
   if (e.target.id === "rv-peek" && e.target.checked) {
     const r = await api(`/api/reviews/${encodeURIComponent(RV.id)}/reveal/${encodeURIComponent(rvItem.id)}?by=${encodeURIComponent(rvBy())}`, { method: "POST" }).catch((err) => ({ error: err.message }));
     $("#rv-peeked").textContent = r.error || `${RV.machine_label} said: ${rvShowValue(r.machine, rvItem)}`;

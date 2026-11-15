@@ -6,10 +6,10 @@ and AITranscribe's stress labelling ("which word is stressed?"). What they share
 - Blind by construction. The page never receives what a set keeps hidden (strata, votes), and receives the
   machine's answer, if the set has one, only after the person has answered, unless they ask to see it first, or
   never (`reveal: never`, as the pre-registered gold sample needs). Each answer records whether the machine's answer
-  had been seen (machine_seen), and scoring uses the first unseen answer per item.
+  had been seen (machine_seen), and scoring uses each annotator's first unseen answer per item.
 - One seeded shuffle, so any prefix of the order is a random sample: stopping after 150 of 400 is fine.
-- An append-only log (answers.jsonl): nothing is lost, the latest answer per item wins, and each answer carries the
-  seconds spent on it, which give the time left at this person's pace.
+- An append-only log (answers.jsonl): nothing is lost, each answer names its annotator (`by`), the latest answer per
+  item per annotator wins (two coders never overwrite each other), and each answer carries the seconds spent on it, which give the time left at this person's pace.
 - The item's own audio, cut from the recording on first play, and its neighbors as context.
 
 A set is a folder in <workspace>/reviews/: set.json (the question and the items, never changed once made) and
@@ -137,12 +137,30 @@ def _append(workspace: Path, set_id: str, row: dict) -> None:
         fh.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
-def latest(log: list[dict]) -> dict[str, dict]:
-    """The latest answer per item (reveal events are not answers)."""
+def annotator(r: dict) -> str:
+    """Who gave a row. Rows from before annotators were named say "me", and stay valid as an annotator of that name."""
+    return str(r.get("by") or "me")
+
+
+def latest(log: list[dict]) -> dict[tuple[str, str], dict]:
+    """The latest answer per (item, annotator); reveal events are not answers. Two coders never replace each other."""
     out = {}
     for r in log:
         if "value" in r:
-            out[str(r["item"])] = r
+            out[(str(r["item"]), annotator(r))] = r
+    return out
+
+
+def answers_of(log: list[dict], by: str) -> dict[str, dict]:
+    """One annotator's latest answer per item: what their page shows them."""
+    return {item: r for (item, b), r in latest(log).items() if b == by}
+
+
+def annotators(log: list[dict]) -> dict[str, int]:
+    """Each annotator and how many items they have answered."""
+    out: dict[str, int] = {}
+    for _, b in latest(log):
+        out[b] = out.get(b, 0) + 1
     return out
 
 
@@ -205,15 +223,16 @@ def answer(workspace: Path, set_id: str, item_id: str, value, *, reason: str = "
     problem = _check(s, it, value, reason)
     if problem:
         raise ValueError(problem)
-    log = rows(workspace, set_id)
-    seen = (s.get("prefill") and s["answer"]["kind"] in ("text", "check")
-            or any(r.get("event") == "reveal" and str(r["item"]) == str(item_id) for r in log)
-            or any("value" in r and str(r["item"]) == str(item_id) for r in log) and s["reveal"] == "after")
+    by = by or "me"
+    log = [r for r in rows(workspace, set_id) if str(r["item"]) == str(item_id) and annotator(r) == by]
+    seen = (s.get("prefill") and s["answer"]["kind"] in ("text", "check")   # machine_seen is per annotator
+            or any(r.get("event") == "reveal" for r in log)
+            or any("value" in r for r in log) and s["reveal"] == "after")
     names = {f["name"] for f in s["answer"].get("flags", [])}
     row = {"item": str(item_id), "value": value.strip() if isinstance(value, str) else value,
            "reason": reason or "", "flags": {k: bool(v) for k, v in (flags or {}).items() if k in names},
            "note": " ".join(str(note or "").split()), "seconds": round(seconds) if seconds else None,
-           "machine_seen": int(bool(seen)), "by": by or "me", "utc": utc()}
+           "machine_seen": int(bool(seen)), "by": by, "utc": utc()}
     _append(workspace, set_id, row)
     if s["reveal"] == "after" and "machine" in it:
         return {**row, "machine": it["machine"]}
@@ -226,15 +245,19 @@ def reveal(workspace: Path, set_id: str, item_id: str, by: str = "me"):
     it = s["by_id"].get(str(item_id))
     if it is None or "machine" not in it or s["reveal"] == "never":
         raise KeyError(f"{set_id}/{item_id} has no machine answer to show")
-    _append(workspace, set_id, {"item": str(item_id), "event": "reveal", "by": by, "utc": utc()})
+    _append(workspace, set_id, {"item": str(item_id), "event": "reveal", "by": by or "me", "utc": utc()})
     return it["machine"]
 
 
 # ---------------------------------------------------------------------------------------------- progress, scores
-def progress(workspace: Path, set_id: str) -> dict:
+def progress(workspace: Path, set_id: str, by: str | None = None) -> dict:
+    """How far a set has got. With `by`, that annotator's progress; without, `answered` counts items anyone has
+    answered, and `annotators` gives each one's count."""
     s = load(workspace, set_id)
     log = rows(workspace, set_id)
-    done = latest(log)
+    if by is not None:
+        log = [r for r in log if annotator(r) == by]
+    done = {item for item, _ in latest(log)}
     secs = [r["seconds"] for r in log if r.get("seconds")]
     pace = statistics.median(secs) if secs else None
     left = len(s["order"]) - len(done)
@@ -243,7 +266,7 @@ def progress(workspace: Path, set_id: str) -> dict:
             "source": s.get("source", {}), "items": len(s["order"]), "answered": len(done), "left": left,
             "seconds_per_item": round(pace) if pace else None, "left_s": round(pace * left) if pace else None,
             "agreement": sc.get("agreement") if sc else None, "machine_label": s.get("machine_label"),
-            "reveal": s["reveal"]}
+            "reveal": s["reveal"], "annotators": annotators(rows(workspace, set_id)), "by": by}
 
 
 def clean_check(value: dict) -> dict:
@@ -283,28 +306,34 @@ def _edits(a: list[str], b: list[str]) -> int:
     return prev[-1]
 
 
-def scoring_answers(s: dict, log: list[dict]) -> dict[str, dict]:
-    """The answer each item is scored on: the first one given before the machine's answer was seen, else (sets
-    without a hidden machine answer, or post-editing) the latest. Options marked score: false are left out."""
+def scoring_answers(s: dict, log: list[dict]) -> dict[tuple[str, str], dict]:
+    """The answer each (item, annotator) is scored on: the first one that annotator gave before seeing the
+    machine's answer, else (sets without a hidden machine answer, or post-editing) their latest. Options marked
+    score: false are left out."""
     skip = {o["value"] for o in s["answer"].get("options", []) if o.get("score") is False}
     first_blind, last = {}, {}
     for r in log:
         if "value" not in r:
             continue
-        last[r["item"]] = r
-        if not r.get("machine_seen") and r["item"] not in first_blind:
-            first_blind[r["item"]] = r
+        key = (str(r["item"]), annotator(r))
+        last[key] = r
+        if not r.get("machine_seen") and key not in first_blind:
+            first_blind[key] = r
     use = first_blind if s["reveal"] == "after" and not s.get("prefill") else last
     return {k: r for k, r in use.items() if not (isinstance(r["value"], str) and r["value"] in skip)}
 
 
-def score(s: dict, log: list[dict]) -> dict:
+def score(s: dict, log: list[dict], by: str | None = None) -> dict:
     """How often the machine agreed with the person, by kind: agreement and Cohen's kappa with a confusion table
     (choice); exact match and whether the machine's top word was among the person's (words); word error rate of
-    the machine's text against the person's (text)."""
+    the machine's text against the person's (text). Every annotator's answers are pooled, one pair per (item,
+    annotator), unless `by` names one; with several annotators, `by_annotator` scores each alone."""
+    if by is not None:
+        log = [r for r in log if annotator(r) == by]
     use = scoring_answers(s, log)
-    pairs = [(s["by_id"][k]["machine"], r) for k, r in use.items() if "machine" in s["by_id"].get(k, {})]
+    pairs = [(s["by_id"][k]["machine"], r) for (k, _), r in use.items() if "machine" in s["by_id"].get(k, {})]
     kind = s["answer"]["kind"]
+    who = annotators(log)
     out = {"scored": len(pairs), "answered": len(latest(log)),
            "blind": s["reveal"] == "after" and not s.get("prefill"), "machine_label": s.get("machine_label")}
     if not pairs:
@@ -334,6 +363,8 @@ def score(s: dict, log: list[dict]) -> dict:
                    scored=len(pairs))
         if kind == "check":
             out.update(check_summary(s, [r for _, r in pairs]))
+    if by is None and len(who) > 1:
+        out["by_annotator"] = {b: score(s, log, b) for b in sorted(who)}
     return out
 
 
@@ -367,20 +398,20 @@ def check_summary(s: dict, answers: list[dict]) -> dict:
 
 
 def export_rows(workspace: Path, set_id: str) -> list[dict]:
-    """One row per answered item (its latest answer), with the item's machine answer and hidden fields, for
-    analysis. Never served to the labelling page."""
+    """One row per answered item per annotator (their latest answer), with the item's machine answer and hidden
+    fields, for analysis. Never served to the labelling page."""
     s = load(workspace, set_id)
     log = rows(workspace, set_id)
     scored = scoring_answers(s, log)
     out = []
-    for k, r in latest(log).items():
+    for (k, b), r in latest(log).items():
         it = s["by_id"].get(k, {})
         out.append({"item": k, "title": it.get("title", ""), "text": it.get("text", ""), **{
             "answer": (" ".join(it["words"][i] for i in r["value"]) if isinstance(r["value"], list)
                        else _text(r["value"])),
             "answer_raw": json.dumps(r["value"]), "reason": r["reason"], "flags": json.dumps(r["flags"]),
-            "note": r["note"], "seconds": r["seconds"], "machine_seen": r["machine_seen"], "by": r["by"],
-            "utc": r["utc"], "scored_on": json.dumps(scored[k]["value"]) if k in scored else "",
+            "note": r["note"], "seconds": r["seconds"], "machine_seen": r["machine_seen"], "by": b,
+            "utc": r["utc"], "scored_on": json.dumps(scored[(k, b)]["value"]) if (k, b) in scored else "",
             "machine": json.dumps(it.get("machine")) if "machine" in it else "",
             "hidden": json.dumps(it.get("hidden", {}))}})
     return out
