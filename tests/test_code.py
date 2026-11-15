@@ -174,3 +174,18 @@ def test_turns_refuse_segments_without_speakers(ws):
     rec = Runner(recipe_from_text(text, ws), MachineConfig(workspace=ws / "workspace"), log=lambda *_: None).execute()
     cell = rec["cells"]["src"]["turns"]
     assert cell["status"] == "failed" and "have no speaker" in cell["error"] and "Put align" in cell["error"]
+
+
+def test_an_endpoint_off_this_machine_is_refused_unless_allowed(ws):
+    """D5: a recipe naming a remote server is refused at plan time; allowed, it is flagged in the plan."""
+    from ontherecord.recipe import RecipeError
+    text = ("name: t\nsource:\n  files: [src.txt]\nstages:\n  - download: {}\n  - toy_segments: {}\n  - turns: {}\n"
+            "  - code: {codebook: toy.yaml, endpoint: 'https://llm.example.org/v1'}\n")
+    with pytest.raises(RecipeError, match=r"llm.example.org, off this machine.*allow_remote_endpoints"):
+        Runner(recipe_from_text(text, ws), MachineConfig(workspace=ws / "workspace"), log=lambda *_: None)
+    cfg = MachineConfig(workspace=ws / "workspace", allow_remote_endpoints=["llm.example.org"])
+    plan = Runner(recipe_from_text(text, ws), cfg, log=lambda *_: None).plan()
+    assert plan["src"]["code"]["leaves_machine"] == "llm.example.org"
+    from ontherecord.llm import leaves_machine_check, remote_host
+    assert remote_host("http://127.0.0.1:8081/v1") is None and remote_host("managed") is None
+    assert leaves_machine_check("llm.example.org")[0].status == "warn"

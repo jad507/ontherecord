@@ -32,14 +32,14 @@ EXPECTED = {
     "audio": ("1", "11298036ad1d6a8a103ea03b6470a9542ad6c47c0f57082474798d7b30b99a7a"),  # headline declared for Compare; no output changes
     "diarize": ("2", "62be5302d1ef4a1c71a592e9656da406ef93cc9ead0932587c720d00e79b7a88"),  # formats branch: writes the shared formats (version raised)
     "transcribe": ("2", "1af689eb6f53a0462f06f95cb8c80f92a81739273ca1f8010888de70ad2ec0a1"),  # formats branch: writes the shared formats (version raised)
-    "nemotron_transcribe": ("2", "ceebcbe06cfce1e627c74d706394110fcb67b69ab8191e9db3b7c6a26e3a5d45"),  # formats branch: writes the shared formats (version raised)
+    "nemotron_transcribe": ("2", "bbe590f9fa0089f40470c058560379154d7365e25f78fcc4276f7a13e5927445"),  # formats branch (version raised); D5 leaves_machine check only adds to the receipt
     "align": ("2", "3e3d7bfe8a60e524628558e07536031784ca2c3dcc7aabda88797d3c8e012ff2"),  # formats branch: writes the shared formats (version raised)
     "stress_set": ("1", "74f57266f21033e0f37e275f911286be8a4a3d1e449284d1e4ede3eb12271961"),  # headline declared for Compare; no output changes
     "whistress": ("1", "05e53964a2bb0fddb2575cd71e4d7d7b3efe1a2f1a66ec74c6d8c55229995db5"),  # headline declared for Compare; no output changes
-    "stress_read": ("1", "0f835fb698838a928445fe3b44b5847b616fe916dced44475d5f1f6540f433eb"),  # headline declared; open_model takes the context size as an argument (same calls, same outputs)
+    "stress_read": ("1", "58890068ca9470b89c3e04c71329ba81d441cde483dbeaa89265741bfbb91cd3"),  # headline; open_model's context argument; D5 leaves_machine check (receipt only): no output changes
     "word_choices": ("3", "42cf5b6101508fb15d23478f4ae7be4a551dfb56f6b9040def24358590f3feb1"),  # formats branch: writes the shared formats (version raised)
     "turns": ("1", "102334b9f90b3a6eabb25b465580fc5694e1d28f06b8862db559048bbc4626ba"),  # formats branch: writes the shared formats (version raised)
-    "code": ("1", "3fd0a7aae61a8bd4747a019e3a210d6fff2d6f520c9aa627eccae9c77e35bf1e"),  # formats branch: writes the shared formats (version raised)
+    "code": ("1", "3627880ed9f178e417b1908b8ef28387ef80bb0f2d6e08625295769828590f2c"),  # formats branch (version raised); D5 leaves_machine check only adds to the receipt
 }
 
 

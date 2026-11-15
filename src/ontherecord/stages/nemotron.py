@@ -174,6 +174,8 @@ class NemotronTranscribe(Stage):
                   f"cut into {len(pieces)} pieces; a person has a different label in each piece"
                   if len(pieces) > 1 else "one piece"),
         ]
+        from ..llm import leaves_machine_check, remote_host
+        checks += leaves_machine_check(remote_host(settings["endpoint"]))
         return Result(
             files={"transcript": "transcript.json", "nemotron_raw": "raw.json"},
             checks=checks, device="server",

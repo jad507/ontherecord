@@ -8,7 +8,7 @@ import math
 import re
 from pathlib import Path
 
-from ..llm import close_model, open_model
+from ..llm import close_model, leaves_machine_check, open_model, remote_host
 from ..usage import llm_metrics
 from .base import Check, Context, Item, Result, Setting, Stage
 
@@ -181,6 +181,7 @@ class StressRead(Stage):
         if how.get("unparsed"):
             checks.append(Check("unparsed", "warn", how["unparsed"], f"{how['unparsed']} answers named neither "
                                 "option; counted as wrong"))
+        checks += leaves_machine_check(remote_host(settings["endpoint"]))
         return Result(files={"stress_answers": "answers.jsonl"}, metrics=metrics, checks=checks, device="server",
                       tools=state["tools"])
 

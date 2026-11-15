@@ -71,6 +71,7 @@ class StageSpec:
     inputs_from: dict = field(default_factory=dict)   # input -> name of the earlier step it comes from
     mixed: dict = field(default_factory=dict)         # artifact -> the 2+ earlier stages this step's inputs trace to
     input_artifacts: dict = field(default_factory=dict)   # input -> which of that step's artifacts it is
+    leaves_machine: str | None = None                     # the remote host its endpoint sends to (allowed: D5)
 
     @property
     def stage(self) -> str:

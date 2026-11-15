@@ -91,10 +91,16 @@ class Runner:
     def _resolve(self, machine: dict | None) -> None:
         """Let each stage settle machine-dependent settings (device: auto) before any key is made (audit D3)."""
         from .stages.base import UserError
+        from .llm import check_endpoint
         if machine is None:
             from .hwdetect import machine as detect
             machine = detect()
         for spec in self.recipe.stages:
+            try:   # D5: any stage with an endpoint setting is refused here when it would leave this machine
+                spec.leaves_machine = check_endpoint(str(spec.run_settings.get("endpoint") or ""),
+                                                     self.cfg.allow_remote_endpoints)
+            except UserError as e:
+                raise RecipeError(f"{spec.name}: {e}") from None
             try:
                 new = spec.cls.resolve(dict(spec.run_settings), machine)
             except UserError as e:
@@ -153,6 +159,8 @@ class Runner:
             blocked = False
             for spec in self.recipe.stages:
                 note = {"mixed": spec.mixed} if spec.mixed else {}
+                if spec.leaves_machine:
+                    note["leaves_machine"] = spec.leaves_machine
                 if blocked:
                     row[spec.name] = {"status": "blocked", **note}
                     continue

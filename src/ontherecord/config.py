@@ -63,6 +63,7 @@ class MachineConfig:
     cookies_file: Path | None = None                          # yt-dlp cookies; never recorded
     archive: Path = field(default_factory=lambda: Path.home() / "OnTheRecord-Archive")  # where imports are filed
     assistant: dict = field(default_factory=dict)             # model, gpu_layers, context, or endpoint
+    allow_remote_endpoints: list[str] = field(default_factory=list)  # hosts a stage's `endpoint` may name (D5)
 
     def python_for(self, group: str) -> str:
         """The interpreter for a stage group; the current one when the config names none."""
@@ -99,7 +100,7 @@ class MachineConfig:
             "envs": {k: str(v) for k, v in self.envs.items()},
             "tools": dict(self.tools), "models_root": str(self.models_root) if self.models_root else None,
             "env_file": "set" if self.env_file else None, "stage_env": dict(self.stage_env),
-            "archive": str(self.archive),
+            "archive": str(self.archive), "allow_remote_endpoints": list(self.allow_remote_endpoints),
         }
 
 
@@ -121,4 +122,5 @@ def load_config(path: str | Path | None = None) -> MachineConfig:
     if raw.get("archive"):
         cfg.archive = _path(raw["archive"])
     cfg.assistant = dict(raw.get("assistant") or {})
+    cfg.allow_remote_endpoints = [str(h).strip().lower() for h in raw.get("allow_remote_endpoints") or []]
     return cfg

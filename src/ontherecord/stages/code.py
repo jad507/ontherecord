@@ -24,7 +24,7 @@ from pathlib import Path
 
 from .. import codebooks
 from ..artifacts import load_segments, write_json
-from ..llm import close_model, est_tokens, open_model, parse_json
+from ..llm import close_model, est_tokens, leaves_machine_check, open_model, parse_json, remote_host
 from ..usage import llm_metrics
 from .base import Check, Context, Item, Result, Setting, Stage, UserError
 
@@ -274,6 +274,7 @@ class Code(Stage):
             checks.append(Check("windows", "warn" if len(plan) > 1 else "ok", len(plan),
                                 f"the recording did not fit; coded in {len(plan)} overlapping pieces" if len(plan) > 1
                                 else "the whole recording in one call" if plan else "nothing to code"))
+        checks += leaves_machine_check(remote_host(settings["endpoint"]))
         return Result(files={"annotations": "annotations.json", "annotations_csv": "annotations.csv",
                              "responses": "responses.json"}, checks=checks, device="server", tools=state["tools"],
                       metrics={"annotations": len(anns), "units": len(units), "calls": len(plan),
