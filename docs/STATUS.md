@@ -5,6 +5,14 @@ picks it up next (a person or an agent). Written Oct 22 at the end of the first 
 date at the end of Oct 23's and Oct 24's. The Research-a-thon write-up notes, with every number and its source, are in
 [researchathon-notes.md](researchathon-notes.md). The write-up (three pages) is due Dec 1, 11:59 pm ET.
 
+## November 14: architecture audit
+
+[audit-2026-11-14.md](audit-2026-11-14.md) audits how well the program generalizes beyond the council and stress
+pipelines, and gives a numbered roadmap with the reasons, the rules that must not be broken (frozen stage outputs
+and defaults), and a done-when test per item. Read it before adding a stage, a review kind or a screen. Nothing in
+it is built yet. It has four questions waiting on Jeff, the first being whether to spend the week before Dec 1 on
+its demonstration (a codebook-driven `code` stage) or on the list below.
+
 ## Against the original four-week plan
 
 We are at about week 3.5: Jeff's additions took roughly a week of the plan's time.
