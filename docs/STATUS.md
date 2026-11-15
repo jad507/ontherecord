@@ -18,9 +18,9 @@ adapters for old files. What may not break: people's answers in `<workspace>/rev
 hands_on_dl and AITranscribe, and the decisions below. The work is ordered as step 0 on `main` (back up reviews,
 the version test, annotators), a `formats` branch, then one rerun that must reproduce the recorded numbers.
 
-His other answers that day: the time before Dec 1 goes to this, ahead of "Next, in order" below (the revised work is
-larger than the week he agreed to; the audit proposes falling back to `main`'s results if the branch has not
-reproduced the numbers by Nov 24, which he has not yet confirmed); the model reads `SPEAKER_02`, not names, by
+His other answers that day: the time before Dec 1 goes to this, ahead of "Next, in order" below (with a guard he
+confirmed: if the `formats` branch has not reproduced the numbers by Nov 24, the write-up uses `main`'s results and
+the branch merges after Dec 1); the model reads `SPEAKER_02`, not names, by
 default. The names `code`/`lens`/`context` and the tab names are deferred until he has used them.
 
 ## Against the original four-week plan
