@@ -12,6 +12,6 @@ source:
 stages:
   - download: {}
   - audio: {channel: left}
-  - nemotron_transcribe: {model: nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B-NVFP4, gpu_memory_utilization: 0.92}   # see below
+  - nemotron_transcribe: {model: nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B-NVFP4, gpu_memory_utilization: 0.92}   # see the note above
   - turns: {max_gap_s: 30, max_turn_s: null}   # as the study cut its speech blocks
   - code: {codebook: public-comment.yaml, instructions: extract_public_comments_v1.txt, mode: find, context: whole}
