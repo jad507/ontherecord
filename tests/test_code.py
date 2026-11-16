@@ -223,6 +223,10 @@ def test_a_second_pass_codes_only_what_the_first_found(ws, server):
         ("a0001", "hello there", ["t0000"], "A"), ("a0002", "hello again", ["t0002"], "A")]
     second_calls = FakeCoder.calls[1:]
     assert len(second_calls) == 2 and all("fine thanks" not in c["messages"][1]["content"] for c in second_calls)
+    # the reply format names the only ids the model may answer with: the ones that call showed
+    enum = lambda c, key: c["response_format"]["json_schema"]["schema"]["properties"][key]["items"]  # noqa: E731
+    assert [enum(c, "coded")["properties"]["unit"]["enum"] for c in second_calls] == [["a0001"], ["a0002"]]
+    assert enum(FakeCoder.calls[0], "found")["properties"]["units"]["items"]["enum"] == ["t0000", "t0001", "t0002"]
     ann = json.loads(output(ws, rec, "second", "annotations").read_text())
     assert [(a["target"]["units"], a["code"]) for a in ann["annotations"]] == [
         (["a0001"], "greeting"), (["a0002"], "greeting"), (["a0002"], "other_talk")]   # several codes on one

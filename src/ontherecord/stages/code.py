@@ -89,20 +89,23 @@ def merge_found(found: list[dict], order: dict[str, int]) -> list[dict]:
     return sorted(merged, key=lambda m: (order[m["units"][0]], m["code"]))
 
 
-def schema(cb: dict, mode: str) -> dict:
+def schema(cb: dict, mode: str, ids: list[str] | None = None) -> dict:
+    """The JSON the model is held to. `ids`, when given, are the only unit ids it may answer with: the server
+    enforces the schema as it generates, so an id copied with its brackets ("[a0005]") cannot be written."""
+    uid = {"type": "string", "enum": list(ids)} if ids else {"type": "string"}
     attrs = {a["id"]: ({"type": "string", "enum": a["choices"]} if a.get("choices")
                        else {"type": "string", "description": a["help"]}) for a in cb["attributes"]}
     codes = [c["id"] for c in cb["codes"]]
     if mode == "find":
         item = {"type": "object",
-                "properties": {"units": {"type": "array", "items": {"type": "string"},
+                "properties": {"units": {"type": "array", "items": uid,
                                          "description": "the id of every unit of this stretch, in order"},
                                "code": {"type": "string", "enum": codes}, **attrs},
                 "required": ["units", "code", *attrs]}
         return {"type": "object", "properties": {"found": {"type": "array", "items": item}}, "required": ["found"]}
     code = ({"type": "array", "items": {"type": "string", "enum": codes}} if cb["multiple"]
             else {"type": "string", "enum": [*codes, "none"]})
-    item = {"type": "object", "properties": {"unit": {"type": "string"}, "code": code, **attrs},
+    item = {"type": "object", "properties": {"unit": uid, "code": code, **attrs},
             "required": ["unit", "code", *attrs]}
     return {"type": "object", "properties": {"coded": {"type": "array", "items": item}}, "required": ["coded"]}
 
@@ -134,7 +137,7 @@ class Code(Stage):
     and write annotations. See this module's docstring for context, lens and mode."""
     name = "code"
     label = "Code with a model"
-    version = "2"
+    version = "3"
     gpu = True
     needs = {"units": "segments"}
     makes = {"annotations": "annotations", "annotations_csv": "table", "responses": "other"}
@@ -187,7 +190,6 @@ class Code(Stage):
         order = {u["id"]: n for n, u in enumerate(units)}
         noun = UNIT_NOUN.get(doc["unit"], "Units")
         system = system_prompt(cb, settings["lens"], settings["instructions"], settings["mode"], noun)
-        sch = schema(cb, settings["mode"])
         codes = {c["id"] for c in cb["codes"]}
         budget = llm.n_ctx - settings["max_tokens"] - est_tokens(system) - 500
         if budget < 1000:
@@ -207,8 +209,10 @@ class Code(Stage):
                         + "\n".join((">> " if u["id"] in tset else "   ") + render(u) for u in shown))
             user += ("\n\nList every stretch that takes a code." if settings["mode"] == "find"
                      else "\n\nCode " + ("every unit above." if settings["context"] == "whole" else "the marked unit."))
+            ids = [u["id"] for u in shown] if settings["mode"] == "find" else list(targets)
             r = llm.chat([{"role": "system", "content": system}, {"role": "user", "content": user}],
-                         temperature=settings["temperature"], max_tokens=settings["max_tokens"], schema=sch)
+                         temperature=settings["temperature"], max_tokens=settings["max_tokens"],
+                         schema=schema(cb, settings["mode"], ids))
             data = parse_json(r["text"])
             calls.append(r)   # speeds go to the metrics only: they differ every run, and the output must not
             raw.append({"targets": [targets[0], targets[-1]], "parsed": data is not None,

@@ -40,7 +40,7 @@ EXPECTED = {
     "word_choices": ("3", "d6a750c97782f63ccb37519401bf22ddcfbebbbd65d9bcd99acb89b78cfd06ab"),  # formats branch (version raised); later artifacts.py's RTTM check, no output change
     "turns": ("1", "c2952079af2e71ce0a77c2792871c1e23d170b9c1fb50f4fecc728ff9cc78c17"),  # formats branch (version raised); later artifacts.py's RTTM check, no output change
     "excerpts": ("1", "bcc0249c7aade85154ebf7d17f72ef1039e274d578dce05df07da3d4b06fcffe"),
-    "code": ("2", "084380632e3b07486357f8c27ac9141bbe5cbfc860a826d64baf583533b19384"),  # v2: annotations name a local model by its file name, not its path
+    "code": ("3", "784ca985b31e0aace1500630262b8dc50ef5589c8a7b9f382204851088c5f925"),  # v3: the reply format lists the unit ids the model may answer with
 }
 
 
