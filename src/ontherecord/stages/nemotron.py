@@ -33,6 +33,9 @@ SPEAKER_PROMPT = ("Transcribe this audio with punctuation and capitalization. In
 MAX_AUDIO_S = 3600          # trained on up to an hour; the server is told to take no more
 CUT_SEARCH_S = 30           # a long recording is cut at the quietest second within this of each even split
 RAM_HEADROOM_GIB = 4        # left free beside the experts held in RAM (they are pinned, so they cannot swap)
+# Loading takes more than the pinned amount. Nov 16 on shiro (30 GiB): 20 GiB of experts in RAM reached 25.4 GiB
+# while loading, and systemd-oomd killed the terminal the job was started from (the job with it).
+LOAD_OVERHEAD_GIB = 6
 SERVER_ENV = {
     "VLLM_PLUGINS": "nemo_speechlm",
     "VLLM_MAX_AUDIO_DECODE_DURATION_S": str(MAX_AUDIO_S),
@@ -252,7 +255,7 @@ class VllmServer:
         tried = []
         for gib in [float(x) for x in str(settings["offload"]).split(";") if x.strip()]:
             free = available_ram_gib()
-            if gib and free is not None and gib + RAM_HEADROOM_GIB > free:
+            if gib and free is not None and gib + LOAD_OVERHEAD_GIB + RAM_HEADROOM_GIB > free:
                 log(f"  not trying {gib:g} GiB of experts in RAM: {free:.1f} GiB is free")
                 tried.append(f"{gib:g} GiB (only {free:.1f} GiB of RAM free)")
                 continue
