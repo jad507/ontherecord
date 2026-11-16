@@ -17,3 +17,10 @@ stages:
   - excerpts: {codes: personal_story}
   - code: {codebook: example-story-themes.yaml, mode: classify, context: unit}
     as: themes
+
+# To code the whole transcript instead (no first pass, nothing cut out): end the stages after turns with one code
+# step, e.g.
+#   - code: {codebook: example-story-themes.yaml, mode: classify, context: window}
+# mode: classify gives every turn an answer (codes, or none); mode: find lists only the stretches that take a code.
+# context: unit (each turn alone), window (each turn with window_size neighbors either side) or whole (the whole
+# recording at once).
