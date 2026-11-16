@@ -13,8 +13,8 @@ Last spring I went to a talk by [a Penn State research team: NAME THE LAB, WITH 
 residents said in public comment while their city council considered an AI data center. The team's method is the
 normal one for research on recorded talk. They took the council's meeting videos, got automatic transcripts,
 corrected them against the recordings, read every transcript to find the public comments, and then read and coded
-every comment under the four themes they developed. If they have a new idea and want to code the comments a
-different way, they read every comment again.
+every comment under the four themes they developed. With this method, a team that has a new idea and wants to
+code the comments a different way reads every comment again.
 
 That is months of skilled work, and the most expensive step is the last: each new idea costs a full re-read, so a
 team can afford only a few. Interviews, focus groups and classroom recordings are studied the same way. AI can
@@ -63,14 +63,15 @@ setting, the software and model versions, the machine and the time taken. A chec
 words and its speaker labels came from, and stops the run if they came from different audio. Rebuilding my old
 mistake on purpose, that check failed on all 11 meetings. Run correctly, the same 11 meetings (18.8 hours) have
 189 speakers and 1,323 speaker turns; run the old way they had about 2,770 "turns" that often merged several
-people, and the list of public comments built on them changed from 121 to 79.
+people. The model's list of public comments was 121 long on the correct turns and 79 to 102 on the wrong ones,
+depending on the version of the coding step. Nobody has yet checked by hand which list is closer to right.
 
 A Review page lets a person check the machine: listen to a passage, answer, and only then see what the model
 said. The software reports how often they agreed. That is how accuracy will be measured: [GOLD CODING: I am
 coding 180 passages by hand; result to come. If not finished by Nov 28, say so here in one sentence].
 
-**What works today.** All five steps run from a browser window on one Linux desktop. The two-pass study above
-(find the comments, then label each with themes) [THEMES RUN: has been run on the 11 meetings; N comments
+**What works today.** Steps 1 to 3 and 5 run from a browser window on one Linux desktop. Step 4, as the second
+pass of a two-pass study (find the comments, then label each with themes), [THEMES RUN: has been run on the 11 meetings; N comments
 labeled in M minutes / is built and tested on one meeting]. Installers for Windows and Mac are written;
 [WINDOWS INSTALL: tested on one university laptop, taking N minutes / not yet tested].
 
@@ -99,9 +100,9 @@ have already coded, which tests the software and gives them a second look at the
 
 ## Innovation
 
-**The whole path, locally, under the researcher's own codes.** Most commercial tools transcribe in the cloud and
-suggest their own themes. On the Record runs published open models on a desktop and codes under the codebook the
-researcher wrote.
+**The whole path, locally, under the researcher's own codes.** [CHECK AGAINST NVivo, ATLAS.ti, MAXQDA AND
+OTTER BEFORE CLAIMING A DIFFERENCE: which transcribe or code in the cloud, which suggest their own themes.] On
+the Record runs published open models on a desktop and codes under the codebook the researcher wrote.
 
 **Re-coding as a rerun.** Because each step is stored with a fingerprint of its inputs and settings, changing the
 codebook redoes only the coding. Changing how the audio is read redoes everything that depends on it, and the
@@ -125,7 +126,7 @@ possible for a university lab.
 
 | Bracket | What it needs | If it does not arrive |
 |---|---|---|
-| Lab's name | Jeff asks the lab whether they are happy to be named as the motivation | "a research team's talk", unnamed |
+| Lab's name | Jeff asks the lab whether they are happy to be named as the motivation, and whether the description of their method is fair (their talk says they corrected YouTube's automatic captions; it does not mention re-coding) | "a research team's talk", unnamed |
 | `[N]` tests | `pytest -q` on the day | drop the number |
 | Gold coding | Jeff codes the 180-item set on the Review page (not started; 38 items are from the 11 meetings and wait on his decision in STATUS.md) | one sentence: accuracy is not yet measured, and how it will be |
 | Themes run | `recipes/eleven-left-themes.yaml` through the queue (about 15 GPU minutes; never run) | "built and tested on one meeting" only if that is true by then; otherwise "built, not yet run on the full set" |
