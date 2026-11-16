@@ -16,6 +16,37 @@ import urllib.request
 from pathlib import Path
 
 
+LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1", "[::1]"}
+
+
+def remote_host(endpoint: str) -> str | None:
+    """The host an endpoint URL sends to, when that is not this machine; None for 'managed' or a local server."""
+    from urllib.parse import urlparse
+    if not endpoint or endpoint == "managed":
+        return None
+    host = (urlparse(endpoint).hostname or "").lower()
+    return None if host in LOCAL_HOSTS else (host or endpoint)
+
+
+def check_endpoint(endpoint: str, allowed: list[str] | None) -> str | None:
+    """Refuse an endpoint off this machine unless the machine config names its host in allow_remote_endpoints
+    (audit D5): a recipe copied from a colleague must not send recordings or transcripts away with nothing on
+    screen but a URL. Returns the remote host when it is allowed, so the stage can say so in a check."""
+    from .stages.base import UserError
+    host = remote_host(endpoint)
+    if host and host not in (allowed or []):
+        raise UserError(f"the endpoint {endpoint} would send this recording's data to {host}, off this machine.",
+                        f"If that is intended, add {host} to allow_remote_endpoints in the machine config "
+                        "(machine.yaml); otherwise use endpoint: managed or a server on 127.0.0.1.")
+    return host
+
+
+def leaves_machine_check(host: str | None):
+    from .stages.base import Check
+    return [Check("leaves_machine", "warn", host, f"data was sent to {host}, off this machine "
+                  "(allowed by allow_remote_endpoints)")] if host else []
+
+
 def quick_fingerprint(path: Path, span: int = 16 << 20) -> dict:
     """Size plus a sha256 of the first and last 16 MB. Hashing a 16 GB model in full takes minutes per run; this
     still tells two different files apart, and the receipt says it is partial."""
@@ -117,8 +148,8 @@ class ManagedLlamaServer:
         self.proc = None
 
 
-def open_model(settings: dict, ctx) -> dict:
-    """A stage's model, from its `endpoint`, `model`, `context`, `offload`, `thinking` and `seed` settings: a
+def open_model(settings: dict, ctx, context_tokens: int) -> dict:
+    """A stage's model, from its `endpoint`, `model`, `offload`, `thinking` and `seed` settings and a context size: a
     llama-server it starts (endpoint 'managed') or a server already running. Returns the stage state: `llm`, the
     `server` to stop in teardown (or None), and `tools` for the receipt."""
     state = {"server": None}
@@ -129,7 +160,7 @@ def open_model(settings: dict, ctx) -> dict:
         if not model.is_file():
             raise FileNotFoundError(f"model not found: {model} (set models_root in the machine config)")
         offloads = [s.strip() for s in settings["offload"].split(";") if s.strip()]
-        srv = ManagedLlamaServer(binary, model, settings["context"], offloads, ctx.scratch / "llama-server.log",
+        srv = ManagedLlamaServer(binary, model, context_tokens, offloads, ctx.scratch / "llama-server.log",
                                  log=ctx.log)
         state.update(server=srv, url=srv.url,
                      tools={"llama_server": tool_version([binary, "--version"]), "offload_used": srv.offload,

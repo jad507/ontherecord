@@ -20,6 +20,7 @@ from pathlib import Path
 
 from .config import MachineConfig, load_config
 from .envinfo import environment
+from .artifacts import ArtifactError, validate
 from .hashing import sha256_file
 from .stages import get
 from .stages.base import Context, Item
@@ -79,15 +80,22 @@ def main(spec_path: str) -> int:
                 inputs = {k: Path(v["path"]) for k, v in it["inputs"].items()}
                 res = stage.run(item, inputs, tmp, settings, state, ctx)
                 outputs = {}
+                missing = set(stage.makes) - set(res.files)
+                if missing or set(res.files) - set(stage.makes):
+                    raise ArtifactError(f"{stage.name} declares {sorted(stage.makes)} but wrote {sorted(res.files)}")
                 for art, fname in res.files.items():
                     p = Path(fname)
                     external = p.is_absolute()
                     path = p if external else tmp / fname
-                    outputs[art] = {"file": fname, "sha256": sha256_file(path), "bytes": path.stat().st_size,
-                                    "external": external}
+                    try:
+                        validate(path, stage.makes[art])
+                    except ArtifactError as e:
+                        raise ArtifactError(f"{art} ({stage.makes[art]}) is malformed: {e}") from None
+                    outputs[art] = {"file": fname, "type": stage.makes[art], "sha256": sha256_file(path),
+                                    "bytes": path.stat().st_size, "external": external}
                 elapsed = round(time.perf_counter() - t1, 2)
                 receipt = {
-                    "receipt_version": 1, "stage": stage.name, "stage_label": stage.label,
+                    "receipt_version": 2, "stage": stage.name, "stage_label": stage.label,
                     "stage_version": stage.version, "item": item.as_dict(), "key": it["key"],
                     "settings": spec["record_settings"], "inputs": it["inputs"], "outputs": outputs,
                     "checks": [c.as_dict() for c in res.checks], "metrics": res.metrics, "tools": res.tools,

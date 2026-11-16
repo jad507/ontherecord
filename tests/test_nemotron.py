@@ -6,7 +6,6 @@ import json
 import pytest
 
 from ontherecord.stages import nemotron as nm
-from ontherecord.stages.align import assign_speaker, load_rttm
 from ontherecord.stages.base import Context, Item
 
 # The shape NeMo Speech's ctc_timestamp_middleware returns (ctc_timestamps.py, _public_result, commit e5d79d5)
@@ -32,16 +31,12 @@ def test_words_take_the_diarization_speaker_their_tag_maps_to():
     assert segs[0]["words"][1]["word"] == " evening,"  # faster-whisper's form
 
 
-def test_rttms_parse_and_align_like_pyannotes(tmp_path):
+def test_the_transcript_is_segments_with_speakers_and_word_times():
+    from ontherecord.artifacts import check_segments, segments
     words, turns = nm.piece_words_and_turns(ANSWER, 0.0, prefix="P2_")
-    excl = nm.exclusive_turns(turns)
-    assert excl == [{"start": 0.3, "end": 1.6, "speaker": "P2_SPEAKER_01"},
-                    {"start": 1.6, "end": 3.0, "speaker": "P2_SPEAKER_00"}]
-    nm.write_rttm(turns, "a meeting", tmp_path / "s.rttm")
-    rows = load_rttm(tmp_path / "s.rttm")
-    assert [r["speaker"] for r in rows] == ["P2_SPEAKER_01", "P2_SPEAKER_00"]
-    seg = nm.segments_from_words(words)[1]
-    assert assign_speaker(seg["start"], seg["end"], rows) == "P2_SPEAKER_00"
+    doc = check_segments(segments(nm.segments_from_words(words)))
+    assert [(u["id"], u["speaker"]) for u in doc["units"]] == [("s0000", "P2_SPEAKER_01"), ("s0001", "P2_SPEAKER_00")]
+    assert all(u["words"] for u in doc["units"])
     st = nm.turn_stats(turns)
     assert st["speaker_count"] == 2 and st["speech_s"] == 2.7 and st["overlap_s"] == 0.3
 

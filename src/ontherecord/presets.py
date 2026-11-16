@@ -34,11 +34,16 @@ def transcript_recipe(sources: list[str], with_comments: bool = False, language:
     transcribe = {"model": choice["whisper"], "compute_type": choice["whisper_compute"]}
     if language is not None:
         transcribe["language"] = language
+    # With comments, turns are cut as the council study cut its speech blocks, and the code stage reads the whole
+    # meeting with the paper's prompt (as recipes/eleven-left.yaml does).
+    turns = {"max_gap_s": 30, "max_turn_s": None} if with_comments else {}
     stages = [("download", {}), ("audio", {}), ("diarize", {}), ("transcribe", transcribe), ("align", {}),
-              ("blocks", {})]
+              ("turns", turns)]
     if with_comments:
-        stages.append(("extract_comments", {"model": bootstrap.MODELS[choice["extraction"]]["file"],
-                                            "offload": choice["extraction_offload"]}))
+        stages.append(("code", {"codebook": "public-comment.yaml", "instructions": "extract_public_comments_v1.txt",
+                                "mode": "find", "context": "whole",
+                                "model": bootstrap.MODELS[choice["extraction"]]["file"],
+                                "offload": choice["extraction_offload"]}))
     src = ("  urls:\n" + "".join(f"    - {json.dumps(u)}\n" for u in urls) if urls else "") + (
         "  files:\n" + "".join(f"    - {json.dumps(f)}\n" for f in files) if files else "")
     return (f"name: {json.dumps(name)}\n"

@@ -27,9 +27,58 @@ default. The names `code`/`lens`/`context` and the tab names are deferred until 
 `~/ontherecord-backups/reviews-20261114/` (and a `.tar.gz` beside it); D6 (`tests/test_stage_versions.py`: change a
 stage's code without its version and the suite fails) in `6431b9b`; D1 (answers kept per annotator; both pages ask
 for a name once per browser; old answers are the annotator "me", and all three sets score exactly as before) in
-`a7a9fa1`. Next: the `formats` branch, in the audit's order (A1+A2, A3, B1+B2, D3, D8's language default, D5,
-recipes). Jeff: when the Review tab or the Check page first asks your name, type `me` to carry on with your earlier
-answers.
+`a7a9fa1`. Jeff: when the Review tab or the Check page first asks your name, type `me` to carry on with your earlier
+answers. (Unsaved Check-page drafts from before are under an old key and will not come back.)
+
+Step 1, branch `formats` (not merged, not pushed): A1 engine `fc595c6`; A1 stages, A2, A3, B1, B2, D3, D8's
+language default and the recipes `51d2637`; D5 `422c647`. Each audit item is marked there. 124 tests pass.
+**The checkout is on `formats`**: a GUI started from it runs branch code, which does not read old runs (untyped
+records are skipped), so the Library looks empty until the rerun. Reviews and their answers are unaffected.
+
+Nov 15 evening, the GPU free overnight (Jeff: "gpu is free overnight if you have work to do on it"):
+
+1. **Rehearsal passed** (a small K5, compared by `k5.py OLD NEW`, kept at
+   `~/ontherecord-backups/k5-baseline/k5.py`). `20261115-220828-jan29-left-comments`: RTTMs byte-identical,
+   transcript text and times identical (261 segments, 3,838 words), every segment's speaker as before, 7 speakers,
+   37 turns (old: 37 blocks). The code stage found 3 public comments (old `extract_comments`: 4; the schema differs).
+   `20261115-221522-check-words`: RTTMs and transcripts identical, `word_choices` identical word by word (text,
+   times, p, every alternative), 492 doubtful, 282 with choices. Only `diarization_stats` differs (new fields).
+2. **Step 2 ran overnight** (`20261115-222537-*`; code steps redone as `20261116-02*` after code v2, below).
+   K5, by `k5.py`:
+   - Every RTTM is byte-identical (eleven-left, average, as-coded, check-words, jan29): 189 speakers on the left
+     channel, 1 per meeting averaged, the same 11 on as-coded. `same_source` fails on all 11 as-coded meetings.
+   - eleven-average: 0 words, 0 turns, 0 comments, as before. All its checks fail or warn as before.
+   - WhiStress reran (its device is now in the key) and its marks are byte-identical: 218/218 and 202/202, top-1
+     0.982 and 0.941; the five readers were therefore reused, answers identical.
+   - **One mismatch: `X3DupuiqLts` (eleven-left, and as-coded, which reuses it).** 970 segments, 154,205 words in
+     all, where Oct 22 had 979 and 154,212; so 1,323 turns, not 1,325 (as-coded 2,765, not 2,773). The other 10
+     transcripts are identical in text and times. Cause: Whisper (faster-whisper 1.2.1, CTranslate2 4.8.3,
+     float16, beam 10) is not deterministic on this card at one near-tie, about 1,241 to 1,345 s into that
+     meeting: same audio sha, same settings, same packages and driver, unchanged call (diffed against main);
+     a third transcription of the meeting, run directly through `ontherecord exclusive`, gave a third
+     result in the same window (970 segments, times off by 0.02 s). Not a code change: `turns` gives 1,325 from
+     Oct 22's aligned files.
+   - Comments: 121 on eleven-left (the old stage also found 121), 79 on as-coded (old: 98), 3 on jan29 (old: 4).
+     The same counts came out on both code passes (v1 and v2).
+   - Jeff accepted the new numbers (Nov 16), so K5 passed; researchathon-notes.md has them with the reason. He
+     asked why the old runs should go: they are kept (7 MB of records, 131 MB of store entries only they use, and
+     the only copy of Oct 22's transcripts). No `store prune`. The check set's audio is the same store entries the
+     new runs use, so nothing was re-pointed. `formats` merged into main (not pushed).
+3. Code v2 (`08ab181`): annotations named the model by the path llama-server reports (the home folder); now
+   the file name.
+4. The assistant eval is not run. Through `ontherecord exclusive` it scores 2 of 25, because the assistant
+   switches itself off while any job runs, the `exclusive` job included (every reply is the "I'm switched off"
+   note). It has to run outside the queue, with the queue empty, which Jeff's rule reserves for him to allow:
+   `.venv/bin/python evals/assistant_eval.py --model hodl/unsloth/gemma-4-E4B-it-UD-Q8_K_XL.gguf` (CPU, as
+   machine.yaml's assistant), or against a running GUI.
+
+Checked without a GPU: the old store's 218 transcript, aligned, word and RTTM files pass the new format checks
+when reshaped as the new stages write them; `turns` reproduces 1,325 and 2,773 blocks from the old aligned files;
+the page was driven headless against a toy run (Library, Codes tab, previews, Build, Review) with no exceptions.
+
+Pitfalls found: `pytest ... | tail` hides a failure's exit code (use `set -o pipefail`); `tests/test_jobs.py::
+test_cli_submit_wait_and_cancel` failed once under load and passed on every rerun (timing). `pkill -f PATTERN` from
+the Bash tool kills the tool's own shell when the pattern appears in its command line.
 
 ## Against the original four-week plan
 

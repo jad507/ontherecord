@@ -13,7 +13,7 @@ and AITranscribe's stress labelling ("which word is stressed?"). What they share
 - The item's own audio, cut from the recording on first play, and its neighbors as context.
 
 A set is a folder in <workspace>/reviews/: set.json (the question and the items, never changed once made) and
-answers.jsonl. Sets come from runs (`from_run`: comments, speakers, transcript) or from a JSON file that another
+answers.jsonl. Sets come from runs (`from_run`: codes, speakers, transcript, check) or from a JSON file that another
 project writes (`create`; scripts/ has the two pages above). Answer kinds:
 
     choice  one of the options (yes / no / unsure)
@@ -463,27 +463,7 @@ def clip(workspace: Path, set_id: str, item_id: str, ffmpeg: str = "ffmpeg", ctx
 
 
 # ---------------------------------------------------------------------------------------------- sets from runs
-GOLD_QUESTION = ("Is the TARGET block a member of the public addressing the body? Council members, staff, presenters "
-                 "and procedural speech are no. If the block runs two speakers together (say a public comment and the "
-                 "chair's reply), answer unsure, tick fused, and say what is fused in the note. Grey blocks are "
-                 "context only.")
 
-
-def _output(store_root: Path, rec: dict, item: str, stage: str, name: str) -> Path | None:
-    """The file a run's step of this stage made for this item (the last such step)."""
-    found = None
-    for st in rec["stages"]:
-        if st.get("stage", st["name"]) != stage:
-            continue
-        cell = rec["cells"].get(item, {}).get(st["name"]) or {}
-        if not cell.get("receipt"):
-            continue
-        r = json.loads((store_root / cell["receipt"]).read_text(encoding="utf-8"))
-        out = (r.get("outputs") or {}).get(name)
-        if out:
-            p = Path(out["file"])
-            found = p if p.is_absolute() else (store_root / cell["receipt"]).parent / p
-    return found
 
 
 def _link(url: str | None, t: float) -> str | None:
@@ -492,137 +472,141 @@ def _link(url: str | None, t: float) -> str | None:
     return None
 
 
-def turns(segments: list[dict], limit_s: float = 60.0, gap_s: float = 5.0) -> list[dict]:
-    """Speaker turns from word_choices' lines: consecutive lines of one speaker, cut into parts of at most
-    limit_s seconds (at line boundaries) and wherever the speaker is silent for gap_s. Each turn has its words."""
-    out: list[dict] = []
-    for sg in segments:
-        if not sg.get("words"):
-            continue
-        last = out[-1] if out else None
-        if (last and last["speaker"] == sg.get("speaker", "") and sg["end"] - last["start"] <= limit_s
-                and sg["start"] - last["end"] < gap_s):
-            last["end"] = sg["end"]
-            last["text"] += " " + sg["text"]
-            last["words"] += sg["words"]
-        else:
-            out.append({"speaker": sg.get("speaker", ""), "start": sg["start"], "end": sg["end"], "text": sg["text"],
-                        "words": list(sg["words"])})
-    k = 0
-    while k < len(out):  # number the parts of a long turn: part 2 of 5
-        j = k
-        while j + 1 < len(out) and out[j + 1]["speaker"] == out[k]["speaker"] and out[j + 1]["start"] - out[j]["end"] < gap_s:
-            j += 1
-        if j > k:
-            for n in range(k, j + 1):
-                out[n]["part"] = [n - k + 1, j - k + 1]
-        k = j + 1
-    return out
+def _check_words(words: list[dict]) -> list[dict]:
+    """A segments file's words as the Check page holds them in a set (compact, and fixed once a set is made)."""
+    return [{"w": w["word"], "s": w["start"], "e": w["end"], "p": w.get("p", 1.0),
+             **({"alts": [{"t": a["word"], "p": a["p"], "n": a["replaces"]} for a in w["alts"]]} if w.get("alts")
+                else {})} for w in words]
 
 
 def from_run(store_root: Path, run_id: str, kind: str, sample: int | None = 100, seed: int = 20261023,
              name: str | None = None, items: list[str] | None = None, blind: bool = False,
-             codes: list[str] | None = None, turn_seconds: float = 60.0) -> dict:
-    """A set spec from a finished run, for create():
+             codes: list[str] | None = None, step: str | None = None) -> dict:
+    """A set spec from a finished run, for create(). Artifacts are found by type, not by stage (library.py):
 
-    comments    blocks sampled half from those the comment extractor put in a public comment and half from the
-                rest, each asked the gold question (yes / no / unsure, fused); the extractor's answer is revealed
-                after answering. Needs the blocks and extract_comments stages.
+    codes       units sampled half from those an `annotations` artifact coded and half from the rest, each asked
+                the codebook's question (the latest annotations, or `step`'s); the coder's answer is revealed after
+                answering.
     speakers    one item per speaker label per recording: its longest lines and a clip, answered with a name or a
-                role ("Chair", "Clerk", "member of the public"). Needs align.
+                role ("Chair", "Clerk", "member of the public"). Needs segments with speakers.
     transcript  lines sampled across the recordings, the transcript's text to correct (or, blind, to write from
-                scratch); scored as the machine's word error rate. Needs transcribe or align.
-    check       every speaker turn (parts of at most turn_seconds), in order, to check word by word and code on the
-                Check page; `codes` names the codes for keys 1-5 and Q-T. A sample, if given, is drawn at random and
-                kept in order. Needs word_choices.
+                scratch); scored as the machine's word error rate. Needs segments with text.
+    check       every unit, in order, of the latest segments with words (turns after word_choices), to check word by
+                word and code on the Check page; `codes` names the codes for keys 1-5 and Q-T. A sample, if given,
+                is drawn at random and kept in order.
     """
+    from .library import best_transcript, coded, latest_with, output_path, segments_summary, trace_to, typed
     rec = json.loads((store_root / "runs" / run_id / "run.json").read_text(encoding="utf-8"))
+    if not typed(rec):
+        raise ValueError(f"run {run_id} was made before artifacts had types; run its recipe again")
     rng = random.Random(seed)
     meta = {i["id"]: i for i in rec["items"]}
     wanted = [i for i in rec["cells"] if not items or i in items]
     out_items: list[dict] = []
+    codebook = None
     for item in wanted:
-        audio = _output(store_root, rec, item, "audio", "audio")
         url, title = meta[item].get("url"), meta[item].get("title") or item
-        info = _output(store_root, rec, item, "download", "info")
-        if info and info.is_file():  # the recording's own title (yt-dlp's, or the file's name), as the Library shows
-            title = json.loads(info.read_text(encoding="utf-8")).get("title") or title
-        clip = (lambda a, b: {"path": str(audio), "start": a, "end": b}) if audio else (lambda a, b: None)
+
+        def audio_for(src_step: str):
+            a = trace_to(rec, src_step, "audio")
+            return output_path(store_root, rec, item, *a) if a else None
+
+        info = latest_with(store_root, rec, item, "info")
+        if info:  # the recording's own title (yt-dlp's, or the file's name), as the Library shows
+            title = json.loads(info[2].read_text(encoding="utf-8")).get("title") or title
         if kind == "check":
-            wp = _output(store_root, rec, item, "word_choices", "words")
-            if not wp:
-                continue
-            tt = turns(json.loads(wp.read_text(encoding="utf-8"))["segments"], turn_seconds)
-            for n, t in enumerate(tt):
-                ctx = [{"offset": j - n, "speaker": x["speaker"], "start": x["start"], "end": x["end"],
-                        "text": x["text"]} for j, x in enumerate(tt) if 0 < abs(j - n) <= 3]
-                c = clip(t["start"], t["end"])
-                out_items.append({"id": f"{item}:{n:04d}", "recording": item, "title": title, "speaker": t["speaker"],
-                                  "start": t["start"], "end": t["end"], "text": t["text"], "words": t["words"],
-                                  **({"part": t["part"]} if t.get("part") else {}), "context": ctx,
-                                  "clip": {**c, "format": "wav"} if c else None, "link": _link(url, t["start"]),
-                                  "machine": t["text"]})
-            continue
-        if kind == "comments":
-            bp, cp = _output(store_root, rec, item, "blocks", "blocks"), _output(store_root, rec, item,
-                                                                                    "extract_comments", "comments")
-            if not bp or not cp:
-                continue
-            meeting = json.loads(bp.read_text(encoding="utf-8"))
-            blocks = meeting["blocks"]
-            title = meeting.get("title") or title
-            flagged = {i for c in json.loads(cp.read_text(encoding="utf-8")).get("comments", []) for i in c["block_ids"]}
-            for n, b in enumerate(blocks):
-                ctx = [{"offset": j - n, "speaker": x["speaker"], "start": x["start"], "end": x["end"],
-                        "text": x.get("text", "")} for j, x in enumerate(blocks) if abs(j - n) <= 6]
-                out_items.append({"id": f"{item}:{b['block_id']}", "recording": item, "title": title,
-                                  "speaker": b["speaker"], "start": b["start"], "end": b["end"],
-                                  "text": b.get("text", ""), "context": ctx, "clip": clip(b["start"], b["end"]),
-                                  "link": _link(url, b["start"]),
-                                  "machine": "yes" if b["block_id"] in flagged else "no",
-                                  "hidden": {"stratum": "flagged" if b["block_id"] in flagged else "not flagged"}})
-        else:
-            src = (_output(store_root, rec, item, "align", "aligned")
-                   or _output(store_root, rec, item, "transcribe", "transcript")
-                   or _output(store_root, rec, item, "nemotron_transcribe", "transcript"))
+            src = latest_with(store_root, rec, item, "segments", lambda p: segments_summary(p)["words"])
             if not src:
                 continue
-            segs = [s for s in json.loads(src.read_text(encoding="utf-8")).get("segments", []) if s.get("text")]
-            if kind == "speakers":
-                by: dict[str, list] = {}
-                for s in segs:
-                    if s.get("speaker"):
-                        by.setdefault(s["speaker"], []).append(s)
-                for spk, ss in sorted(by.items(), key=lambda kv: -sum(s["end"] - s["start"] for s in kv[1])):
-                    top = sorted(ss, key=lambda s: s["start"] - s["end"])[:4]
-                    longest = top[0]
-                    out_items.append({
-                        "id": f"{item}:{spk}", "recording": item, "title": title, "speaker": spk,
-                        "start": longest["start"], "end": min(longest["end"], longest["start"] + 30),
-                        "text": longest["text"].strip(), "clip": clip(longest["start"],
-                                                                      min(longest["end"], longest["start"] + 30)),
-                        "link": _link(url, longest["start"]),
-                        "context": [{"offset": k + 1, "speaker": spk, "start": s["start"], "end": s["end"],
-                                     "text": s["text"].strip()} for k, s in enumerate(sorted(top[1:], key=lambda s: s["start"]))],
-                        "hidden": {"talk_s": round(sum(s["end"] - s["start"] for s in ss)), "lines": len(ss)}})
-            elif kind == "transcript":
-                for n, s in enumerate(segs):
-                    ctx = [{"offset": j - n, "speaker": x.get("speaker") or "", "start": x["start"], "end": x["end"],
-                            "text": x["text"].strip()} for j, x in enumerate(segs) if 0 < abs(j - n) <= 3]
-                    out_items.append({"id": f"{item}:{n}", "recording": item, "title": title,
-                                      "speaker": s.get("speaker") or "", "start": s["start"], "end": s["end"],
-                                      "text": "" if blind else s["text"].strip(), "context": ctx,
-                                      "clip": clip(s["start"], s["end"]), "link": _link(url, s["start"]),
-                                      "machine": s["text"].strip()})
-            else:
-                raise ValueError(f"no review kind {kind!r}: comments, speakers, transcript or check")
+            audio = audio_for(src[0])
+            tt = [u for u in json.loads(src[2].read_text(encoding="utf-8"))["units"] if u.get("words")]
+            for n, t in enumerate(tt):
+                ctx = [{"offset": j - n, "speaker": x.get("speaker", ""), "start": x["start"], "end": x["end"],
+                        "text": x.get("text", "")} for j, x in enumerate(tt) if 0 < abs(j - n) <= 3]
+                out_items.append({"id": f"{item}:{n:04d}", "recording": item, "title": title,
+                                  "speaker": t.get("speaker", ""), "unit": t["id"],
+                                  "start": t["start"], "end": t["end"], "text": t.get("text", ""),
+                                  "words": _check_words(t["words"]), **({"part": t["part"]} if t.get("part") else {}),
+                                  "context": ctx, "clip": {"path": str(audio), "start": t["start"], "end": t["end"],
+                                                           "format": "wav"} if audio else None,
+                                  "link": _link(url, t["start"]), "machine": t.get("text", "")})
+            continue
+        if kind == "codes":
+            from .library import of_type
+            arts = [x for x in of_type(rec, "annotations") if not step or x[0] == step]
+            if not arts or not output_path(store_root, rec, item, *arts[-1]):
+                continue
+            c = coded(store_root, rec, item, *arts[-1])
+            sp = next(x for x in rec["stages"] if x["name"] == arts[-1][0])
+            need = next(n for n, t in sp["needs"].items() if t == "segments")
+            src_step, src_art = sp["from"][need], sp["from_artifact"][need]
+            path = output_path(store_root, rec, item, src_step, src_art)
+            if not path:
+                continue
+            units = [u for u in json.loads(path.read_text(encoding="utf-8"))["units"] if u.get("text")]
+            audio = audio_for(src_step)
+            by_unit: dict[str, list[str]] = {}
+            for a in c["annotations"]:
+                for uid in a.get("units", []):
+                    by_unit.setdefault(uid, []).append(a["code"])
+            if codebook is None:
+                cb_text = (sp["settings"].get("codebook") or {}).get("text") or ""
+                from . import codebooks
+                codebook = codebooks.parse(cb_text) if cb_text else None
+            for n, u in enumerate(units):
+                ctx = [{"offset": j - n, "speaker": x.get("speaker", ""), "start": x["start"], "end": x["end"],
+                        "text": x.get("text", "")} for j, x in enumerate(units) if abs(j - n) <= 6]
+                got = by_unit.get(u["id"], [])
+                machine = (got[0] if got else "none") if codebook and len(codebook["codes"]) > 1 else \
+                    ("yes" if got else "no")
+                out_items.append({"id": f"{item}:{u['id']}", "recording": item, "title": title, "unit": u["id"],
+                                  "speaker": u.get("speaker", ""), "start": u["start"], "end": u["end"],
+                                  "text": u.get("text", ""), "context": ctx,
+                                  "clip": {"path": str(audio), "start": u["start"], "end": u["end"]} if audio else None,
+                                  "link": _link(url, u["start"]), "machine": machine,
+                                  "hidden": {"stratum": "coded" if got else "not coded"}})
+            continue
+        tr = best_transcript(store_root, rec, item)
+        if not tr:
+            continue
+        audio = audio_for(tr[0])
+        clip = (lambda a, b: {"path": str(audio), "start": a, "end": b}) if audio else (lambda a, b: None)
+        segs = [s for s in json.loads(tr[2].read_text(encoding="utf-8"))["units"] if s.get("text")]
+        if kind == "speakers":
+            by: dict[str, list] = {}
+            for s in segs:
+                if s.get("speaker"):
+                    by.setdefault(s["speaker"], []).append(s)
+            for spk, ss in sorted(by.items(), key=lambda kv: -sum(s["end"] - s["start"] for s in kv[1])):
+                top = sorted(ss, key=lambda s: s["start"] - s["end"])[:4]
+                longest = top[0]
+                out_items.append({
+                    "id": f"{item}:{spk}", "recording": item, "title": title, "speaker": spk,
+                    "start": longest["start"], "end": min(longest["end"], longest["start"] + 30),
+                    "text": longest["text"].strip(), "clip": clip(longest["start"],
+                                                                  min(longest["end"], longest["start"] + 30)),
+                    "link": _link(url, longest["start"]),
+                    "context": [{"offset": k + 1, "speaker": spk, "start": s["start"], "end": s["end"],
+                                 "text": s["text"].strip()} for k, s in enumerate(sorted(top[1:], key=lambda s: s["start"]))],
+                    "hidden": {"talk_s": round(sum(s["end"] - s["start"] for s in ss)), "lines": len(ss)}})
+        elif kind == "transcript":
+            for n, s in enumerate(segs):
+                ctx = [{"offset": j - n, "speaker": x.get("speaker") or "", "start": x["start"], "end": x["end"],
+                        "text": x["text"].strip()} for j, x in enumerate(segs) if 0 < abs(j - n) <= 3]
+                out_items.append({"id": f"{item}:{s['id']}", "recording": item, "title": title, "unit": s["id"],
+                                  "speaker": s.get("speaker") or "", "start": s["start"], "end": s["end"],
+                                  "text": "" if blind else s["text"].strip(), "context": ctx,
+                                  "clip": clip(s["start"], s["end"]), "link": _link(url, s["start"]),
+                                  "machine": s["text"].strip()})
+        else:
+            raise ValueError(f"no review kind {kind!r}: codes, speakers, transcript or check")
     if not out_items:
-        need = {"comments": "blocks and extract_comments", "speakers": "align", "transcript": "transcribe or align",
-                "check": "word_choices"}
+        need = {"codes": "annotations (a code step)", "speakers": "segments with speakers",
+                "transcript": "segments with text", "check": "segments with words (word_choices, then turns)"}
         raise ValueError(f"run {run_id} has nothing to review as {kind}: it needs {need.get(kind, kind)}")
-    if kind == "comments":
-        yes = [i for i in out_items if i["machine"] == "yes"]
-        no = [i for i in out_items if i["machine"] == "no"]
+    if kind == "codes":
+        yes = [i for i in out_items if i["hidden"]["stratum"] == "coded"]
+        no = [i for i in out_items if i["hidden"]["stratum"] != "coded"]
         sample = sample or 100
         k = min(len(yes), sample // 2)
         out_items = rng.sample(yes, k) + rng.sample(no, min(len(no), sample - k))
@@ -632,13 +616,21 @@ def from_run(store_root: Path, run_id: str, kind: str, sample: int | None = 100,
         out_items = [out_items[k] for k in sorted(rng.sample(range(len(out_items)), sample))]
     label = rec.get("name", run_id)
     common = {"seed": seed, "source": {"run": run_id, "kind": kind, "made": utc()}}
-    if kind == "comments":
-        return {**common, "name": name or f"public comments, {label}", "question": GOLD_QUESTION,
-                "machine_label": "the comment extractor", "items": out_items,
-                "answer": {"kind": "choice", "options": [
-                    {"value": "yes", "label": "Yes", "key": "y"}, {"value": "no", "label": "No", "key": "n"},
-                    {"value": "unsure", "label": "Unsure", "key": "u", "score": False}],
-                    "flags": [{"name": "fused", "label": "fuses two speakers", "key": "f"}]}}
+    if kind == "codes":
+        cb = codebook or {"name": "codes", "question": "", "codes": []}
+        if len(cb["codes"]) > 1:
+            opts = [{"value": c["id"], "label": c["name"], "help": c["definition"]} for c in cb["codes"]] + [
+                {"value": "none", "label": "None of these", "key": "n"}]
+        else:
+            opts = [{"value": "yes", "label": "Yes", "key": "y"}, {"value": "no", "label": "No", "key": "n"}]
+        opts.append({"value": "unsure", "label": "Unsure", "key": "u", "score": False})
+        question = cb["question"] or (f"Does the TARGET take the code {cb['codes'][0]['name']}? "
+                                      f"{cb['codes'][0]['definition']}" if cb["codes"] else "Does the TARGET take the code?")
+        return {**common, "name": name or f"{cb['name']}, {label}", "question": question,
+                "machine_label": "the model coder", "items": out_items,
+                "codebook": {"name": cb["name"], "sha256": cb.get("sha256")} if codebook else None,
+                "answer": {"kind": "choice", "options": opts,
+                           "flags": [{"name": "fused", "label": "holds two speakers", "key": "f"}]}}
     if kind == "check":
         keys = list(CODE_KEYS)
         named = [{"key": k, "name": n.strip()} for k, n in zip(keys, codes or []) if n.strip()]

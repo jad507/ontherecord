@@ -15,7 +15,7 @@ class Download(Stage):
     label = "Download media"
     version = "1"
     group = "audio"
-    makes = ("media", "info")
+    makes = {"media": "media", "info": "info"}
     packages = ("yt-dlp",)
     settings = {
         "format": Setting("bestaudio/best", "yt-dlp format selector. The hands_on_dl corpus used "

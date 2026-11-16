@@ -1,0 +1,29 @@
+# Public comment at local government meetings: the codebook of the ISLS 2027 study (Lancaster, PA), carrying the
+# definition, exclusions and the six fields of hands_on_dl's extract_public_comments.py. The council recipes give the
+# paper's prompt word for word as the code stage's `instructions`; this file is what the codes and fields are.
+name: public-comment
+question: Is this speech by a member of the public addressing the body?
+multiple: false
+codes:
+  - id: public_comment
+    name: Public comment
+    definition: >-
+      Speech by a member of the public (a resident, community member, business owner, advocate or other local
+      stakeholder) addressing the body, usually in a public comment period or a public hearing, expressing an
+      opinion, concern, request, question or position. One comment is one speaker's turn at the podium, across
+      however many turns it runs; the same person returning later is a separate comment.
+    include:
+      - speaking in a public comment period or at a public hearing
+      - a resident, business owner or advocate giving an opinion, concern, request or question
+    exclude:
+      - council members, the mayor, commissioners, the clerk or city staff conducting business
+      - presenters, consultants, expert witnesses or attorneys speaking at the body's invitation
+      - roll calls, motions, seconds and other procedure
+      - the chair calling the next speaker or thanking them
+attributes:
+  - {id: speaker_name, help: "as stated, else empty"}
+  - {id: residence_or_affiliation, help: "block, ward, neighborhood or organization, as stated, else empty"}
+  - {id: agenda_item, help: "the item or topic addressed, e.g. 'general public comment' or the ordinance"}
+  - {id: position, choices: [support, oppose, mixed, neutral_or_question, unclear]}
+  - {id: summary, help: one or two sentences in plain words}
+  - {id: boundary_note, help: "if a turn also holds someone else's speech, say so; else empty"}

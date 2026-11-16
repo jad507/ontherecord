@@ -28,18 +28,18 @@ NOT_OUTPUT = {"stages/base.py", "envinfo.py", "hashing.py", "bootstrap.py", "con
 
 # stage: (version, sha256 of its sources). Keep a comment on a row whose hash moved without a version bump.
 EXPECTED = {
-    "download": ("1", "80ba96de29df746f7df731450256ffb0dab96cce79dd291b929d89e269fd9464"),
-    "audio": ("1", "fb3557681a3224e9dbd59a0b0e27db83d648e87ee520aaa84b27b5136200040f"),
-    "diarize": ("1", "17aa3d32ae86888523134c4bd16d37a2bdc61264f9d8199f28b5129285aa6b63"),
-    "transcribe": ("1", "1b6f25db94f61385d96a57edd7e2cdd101ccb0938c6ac3bd182721f538cafab4"),
-    "nemotron_transcribe": ("1", "57ebf1c4214b0798d21142a84fe6cbffa8996cc3a62c01cbb941b4b22b241fe8"),
-    "align": ("1", "89a5c12261940aa67485317c3e65889c60e50f4226779c72eaad96799b0cb224"),
-    "blocks": ("1", "f04e293756c6f8c71a02030fa17909b16f7c907ded99e9fc644fe9cde69403f3"),
-    "extract_comments": ("1", "a3b5cfcc2a14e85eda7024730898c3404dad06fbe1e5d1a8cb9b3008cf3e435c"),
-    "stress_set": ("1", "574bb01f6265860a357c4c25461dc8b4902ab60b4f4823ccd420e1354a78b022"),
-    "whistress": ("1", "5174fb585c1d87952a4f6cabbf03ef8961b9635b0830bc9cb884a0d1974235d4"),
-    "stress_read": ("1", "f9a757b04f261418f70d235c8db05815da8d2b21292af2a66c32a1c101f866e5"),
-    "word_choices": ("2", "68c732c8354af766175ce3ff6ee5916d0c01cebf8757cf89c4d775db1029f233"),
+    "download": ("1", "2bcaefac55809c4876839ca5e79966b93daa018501f878e290a26a0e8faceb15"),  # typed needs/makes declared; no output changes
+    "audio": ("1", "11298036ad1d6a8a103ea03b6470a9542ad6c47c0f57082474798d7b30b99a7a"),  # headline declared for Compare; no output changes
+    "diarize": ("2", "62be5302d1ef4a1c71a592e9656da406ef93cc9ead0932587c720d00e79b7a88"),  # formats branch: writes the shared formats (version raised)
+    "transcribe": ("2", "7bf0b0cbdc86fad66514662f5fe82dfa0c6f24236ddd1874eb25e7bc2f62bdd2"),  # formats branch (version raised); later artifacts.py's RTTM check, no output change
+    "nemotron_transcribe": ("2", "394a9bfa9ccede3dafdc9893ae5ed28b91d8d3af55d4ae41beb64427792c5589"),  # formats branch (version raised); later artifacts.py's RTTM check, no output change
+    "align": ("2", "f1519174f2ab2aae6b109242e944c83d750dee5cd77ca2dd1c74c4eefd72785b"),  # formats branch (version raised); later artifacts.py's RTTM check, no output change
+    "stress_set": ("1", "74f57266f21033e0f37e275f911286be8a4a3d1e449284d1e4ede3eb12271961"),  # headline declared for Compare; no output changes
+    "whistress": ("1", "c5d434d7084c58f374f8a22169da9df3e746ffab8ef6a7dfc07c945be54c1e91"),  # D3: device settled before the key and in it (the key changes; the code that makes the marks does not)
+    "stress_read": ("1", "58890068ca9470b89c3e04c71329ba81d441cde483dbeaa89265741bfbb91cd3"),  # headline; open_model's context argument; D5 leaves_machine check (receipt only): no output changes
+    "word_choices": ("3", "d6a750c97782f63ccb37519401bf22ddcfbebbbd65d9bcd99acb89b78cfd06ab"),  # formats branch (version raised); later artifacts.py's RTTM check, no output change
+    "turns": ("1", "c2952079af2e71ce0a77c2792871c1e23d170b9c1fb50f4fecc728ff9cc78c17"),  # formats branch (version raised); later artifacts.py's RTTM check, no output change
+    "code": ("2", "084380632e3b07486357f8c27ac9141bbe5cbfc860a826d64baf583533b19384"),  # v2: annotations name a local model by its file name, not its path
 }
 
 

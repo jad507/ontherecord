@@ -141,41 +141,43 @@ def test_bad_specs_are_refused(tmp_path):
 
 
 def fake_run(ws: Path) -> str:
-    """A finished run with blocks, comments and aligned speakers for one recording."""
+    """A finished typed run for one recording: info, aligned segments, turns, and a code step that coded turns 3-4
+    (one stretch) and 9."""
+    from test_check import typed_run
     run = "20261023-000000-test"
-
-    def out(stage, name, data):
-        d = ws / "store" / stage / "rec1" / "k"
-        d.mkdir(parents=True)
-        (d / f"{name}.json").write_text(json.dumps(data))
-        (d / "receipt.json").write_text(json.dumps({"outputs": {name: {"file": f"{name}.json"}}}))
-        return {"status": "ran", "receipt": f"store/{stage}/rec1/k/receipt.json"}
-    blocks = [{"block_id": i, "speaker": f"SPEAKER_0{i % 3}", "start": 10.0 * i, "end": 10.0 * i + 8,
-               "text": f"words of block {i}"} for i in range(20)]
-    cells = {"blocks": out("blocks", "blocks", {"title": "Council, Jan 29", "blocks": blocks}),
-             "extract_comments": out("extract_comments", "comments", {"comments": [{"block_ids": [3, 4]},
-                                                                                    {"block_ids": [9]}]}),
-             "align": out("align", "aligned", {"segments": [{"start": b["start"], "end": b["end"], "text": b["text"],
-                                                             "speaker": b["speaker"]} for b in blocks]})}
-    (ws / "runs" / run).mkdir(parents=True)
-    (ws / "runs" / run / "run.json").write_text(json.dumps({
-        "name": "test", "items": [{"id": "rec1", "url": "https://www.youtube.com/watch?v=rec1"}],
-        "stages": [{"name": n} for n in cells], "cells": {"rec1": cells}}))
+    segs = [{"id": f"s{i:04d}", "speaker": f"SPEAKER_0{i % 3}", "start": 10.0 * i, "end": 10.0 * i + 8,
+             "text": f"words of block {i}"} for i in range(20)]
+    turns = [{**u, "id": f"t{i:04d}", "from": [u["id"]]} for i, u in enumerate(segs)]
+    ann = {"format": "annotations/1", "codebook": {"name": "public-comment", "sha256": "x"},
+           "by": {"kind": "model", "id": "m"},
+           "annotations": [{"id": "a1", "target": {"units": ["t0003", "t0004"]}, "code": "public_comment"},
+                           {"id": "a2", "target": {"units": ["t0009"]}, "code": "public_comment"}]}
+    typed_run(ws, run, [
+        ("download", {}, {"info": "info"}, {}, "info.json", {"title": "Council, Jan 29"}),
+        ("align", {}, {"aligned": "segments"}, {}, "aligned.json", {"format": "segments/1", "unit": "segment",
+                                                                     "units": segs}),
+        ("turns", {"units": "segments"}, {"turns": "segments"}, {"units": ("align", "aligned")}, "turns.json",
+         {"format": "segments/1", "unit": "turn", "units": turns}),
+        ("code", {"units": "segments"}, {"annotations": "annotations"}, {"units": ("turns", "turns")},
+         "annotations.json", ann)], items=({"id": "rec1", "url": "https://www.youtube.com/watch?v=rec1"},))
     return run
 
 
-def test_sets_from_a_run(tmp_path):
+def test_sets_from_a_run(tmp_path, monkeypatch):
+    monkeypatch.syspath_prepend(str(Path(__file__).parent))
     run = fake_run(tmp_path)
-    spec = reviews.from_run(tmp_path, run, "comments", sample=8)
+    spec = reviews.from_run(tmp_path, run, "codes", sample=8)
     strata = [i["hidden"]["stratum"] for i in spec["items"]]
-    assert len(spec["items"]) == 8 and strata.count("flagged") == 3  # all three flagged blocks, then the rest
-    it = next(i for i in spec["items"] if i["id"] == "rec1:4") if any(i["id"] == "rec1:4" for i in spec["items"]) else spec["items"][0]
+    assert len(spec["items"]) == 8 and strata.count("coded") == 3  # all three coded turns, then the rest
+    assert {i["machine"] for i in spec["items"]} == {"yes", "no"} and spec["answer"]["kind"] == "choice"
+    it = spec["items"][0]
     assert it["link"].endswith(f"t={int(it['start'])}s") and it["title"] == "Council, Jan 29"
     assert {c["offset"] for c in it["context"]} >= {0}
     sp = reviews.from_run(tmp_path, run, "speakers")
     assert [i["speaker"] for i in sp["items"]] == ["SPEAKER_00", "SPEAKER_01", "SPEAKER_02"]
     tr = reviews.from_run(tmp_path, run, "transcript", sample=5, blind=True)
     assert len(tr["items"]) == 5 and all(i["text"] == "" and i["machine"] for i in tr["items"]) and not tr["prefill"]
+    assert all(i["id"].startswith("rec1:s") for i in tr["items"])   # aligned segments, not turns
     with pytest.raises(ValueError):
         reviews.from_run(tmp_path, run, "votes")
 
@@ -186,8 +188,10 @@ def test_endpoints_keep_machine_answers_on_the_server(tmp_path):
     from ontherecord.config import MachineConfig
     from ontherecord.server import create_app
     c = TestClient(create_app(MachineConfig(workspace=tmp_path), dispatch=False), base_url="http://127.0.0.1:8765")
+    import sys
+    sys.path.insert(0, str(Path(__file__).parent))
     run = fake_run(tmp_path)
-    p = c.post("/api/reviews", json={"run": run, "kind": "comments", "sample": 6}).json()
+    p = c.post("/api/reviews", json={"run": run, "kind": "codes", "sample": 6}).json()
     sid = p["id"]
     st = c.get(f"/api/reviews/{sid}").json()
     item = st["order"][0]

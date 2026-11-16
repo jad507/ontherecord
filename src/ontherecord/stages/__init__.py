@@ -18,12 +18,12 @@ _BUILTIN = {
     "transcribe": "transcribe:Transcribe",
     "nemotron_transcribe": "nemotron:NemotronTranscribe",
     "align": "align:Align",
-    "blocks": "blocks:Blocks",
-    "extract_comments": "extract_comments:ExtractComments",
+    "word_choices": "word_choices:WordChoices",
+    "turns": "turns:Turns",
+    "code": "code:Code",
     "stress_set": "stress_set:StressSet",
     "whistress": "whistress:WhiStressMarks",
     "stress_read": "stress_read:StressRead",
-    "word_choices": "word_choices:WordChoices",
 }
 
 

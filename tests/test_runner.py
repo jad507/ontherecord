@@ -208,3 +208,42 @@ def test_stages_run_offline_unless_the_machine_says_otherwise(tmp_path):
     f.write_text("stage_env:\n  HF_HUB_OFFLINE: 0\n", encoding="utf-8")
     env = load_config(f).stage_env
     assert env["HF_HUB_OFFLINE"] == "0" and env["PYANNOTE_METRICS_ENABLED"] == "0"
+
+
+# ---------------------------------------------------------------- D3: machine-dependent settings settle before the key
+CUDA = {"cuda": [{"name": "RTX 5070 Ti", "compute_cap": "12.0"}], "mps": False}
+OLD_CARD = {"cuda": [{"name": "GTX 1080", "compute_cap": "6.1"}], "mps": False}
+CPU = {"cuda": [], "mps": False}
+
+
+def test_auto_is_settled_before_the_key_so_machines_get_different_keys(ws, monkeypatch):
+    monkeypatch.setenv("ONTHERECORD_STAGES", "")
+    text = "name: t\nsource:\n  files: [src.txt]\nstages:\n  - download: {}\n  - audio: {}\n  - transcribe: {}\n"
+    keys, settings = {}, {}
+    for name, machine in (("cuda", CUDA), ("cpu", CPU)):
+        r = Runner(recipe_from_text(text, ws), MachineConfig(workspace=ws / "workspace"), log=lambda *_: None,
+                   machine=machine)
+        spec = r.recipe.stages[-1]
+        settings[name] = (spec.record_settings["device"], spec.record_settings["compute_type"])
+        keys[name] = r.key_for(spec, "src", {"audio": {"audio": {"sha256": "a" * 64}}})
+    assert settings == {"cuda": ("cuda", "float16"), "cpu": ("cpu", "int8")}
+    assert keys["cuda"] != keys["cpu"]
+
+
+def test_a_compute_type_the_card_lacks_fails_at_plan_time_with_the_fix(ws, monkeypatch):
+    monkeypatch.setenv("ONTHERECORD_STAGES", "")
+    text = ("name: t\nsource:\n  files: [src.txt]\nstages:\n  - download: {}\n  - audio: {}\n"
+            "  - transcribe: {compute_type: float16}\n")
+    with pytest.raises(RecipeError, match=r"GTX 1080 .*cannot use compute_type float16.*Use one it can: int8"):
+        Runner(recipe_from_text(text, ws), MachineConfig(workspace=ws / "workspace"), log=lambda *_: None,
+               machine=OLD_CARD)
+    with pytest.raises(RecipeError, match="no NVIDIA card"):
+        Runner(recipe_from_text(text.replace("{compute_type: float16}", "{device: cuda}"), ws),
+               MachineConfig(workspace=ws / "workspace"), log=lambda *_: None, machine=CPU)
+
+
+def test_ctranslate2_compute_types_by_card():
+    from ontherecord.hwdetect import ct2_compute_types
+    assert ct2_compute_types("8.9")[:2] == ["float16", "int8_float16"]
+    assert ct2_compute_types("6.1") == ["int8", "int8_float32", "float32"]
+    assert ct2_compute_types("5.2") == ["float32"]

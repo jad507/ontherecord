@@ -60,7 +60,8 @@ class StressSet(Stage):
     label = "Load a stress test set"
     version = "1"
     group = "stress"
-    makes = ("stress_set",)
+    makes = {"stress_set": "other"}
+    headline = ("items", "items")
     packages = ("huggingface_hub", "pyarrow", "soundfile")
     settings = {
         "revision": Setting("pinned", "Which version of a Hugging Face set: 'pinned' = the one the ICDS poster used "

@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .base import Check, Context, Item, Result, Setting, Stage
+from .base import Check, Context, Item, Result, Setting, Stage, UserError, torch_device
 
 
 def hf_snapshot(repo_id: str) -> str | None:
@@ -38,29 +38,36 @@ class Diarize(Stage):
     one-speaker-at-a-time ('exclusive') answer from one pass; both are kept and later stages pick one."""
     name = "diarize"
     label = "Diarize speakers"
-    version = "1"
+    version = "2"
     group = "audio"
     gpu = True
-    needs = ("audio",)
-    makes = ("rttm_standard", "rttm_exclusive", "diarization_stats")
+    needs = {"audio": "audio"}
+    makes = {"speakers": "speakers", "speakers_exclusive": "speakers", "diarization_stats": "other"}
+    headline = ("speakers", "speakers")
     packages = ("pyannote.audio", "torch", "huggingface_hub")
     settings = {
         "model": Setting("pyannote/speaker-diarization-community-1", "Hugging Face pipeline id (gated: accept "
                          "its terms once, and give a token through the machine config's env_file)."),
-        "device": Setting("auto", "auto = cuda, then mps, then cpu.", choices=["auto", "cuda", "mps", "cpu"],
-                          in_key=False),
+        "device": Setting("auto", "auto = cuda, then mps, then cpu; settled before the run, and part of the key.",
+                          choices=["auto", "cuda", "mps", "cpu"]),
         "min_speakers": Setting(None, "Optional lower bound passed to pyannote."),
         "max_speakers": Setting(None, "Optional upper bound passed to pyannote."),
     }
+
+    @classmethod
+    def resolve(cls, settings: dict, machine: dict) -> dict:
+        settings["device"] = torch_device(settings["device"], machine)
+        return settings
 
     def setup(self, settings: dict, ctx: Context):
         import os
 
         import torch
         from pyannote.audio import Pipeline
-        dev = settings["device"]
-        if dev == "auto":
-            dev = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
+        dev = settings["device"]   # settled by resolve()
+        if dev == "cuda" and not torch.cuda.is_available():
+            raise UserError("diarize: device is cuda, but this PyTorch cannot use the card.",
+                            "Run `ontherecord setup --check`, or set device: cpu.")
         ctx.log(f"loading {settings['model']} on {dev}")
         pipe = Pipeline.from_pretrained(settings["model"], token=os.environ.get("HF_TOKEN") or None)
         pipe.to(torch.device(dev))
@@ -78,6 +85,7 @@ class Diarize(Stage):
         write_rttm(res.exclusive_speaker_diarization, item.id, out / "exclusive.rttm")
         st = {"standard": stats(res.speaker_diarization), "exclusive": stats(res.exclusive_speaker_diarization),
               "duration_s": round(duration, 1)}
+        st["speakers"] = st["standard"]["speaker_count"]
         (out / "stats.json").write_text(json.dumps(st, indent=1), encoding="utf-8")
         n, speech = st["standard"]["speaker_count"], st["standard"]["speech_s"]
         frac = speech / duration if duration else 0.0
@@ -88,7 +96,7 @@ class Diarize(Stage):
                   f"{frac:.0%} of the recording is someone speaking"
                   + (" — low for a meeting; check the audio stage" if frac < 0.4 else "")),
         ]
-        return Result(files={"rttm_standard": "standard.rttm", "rttm_exclusive": "exclusive.rttm",
+        return Result(files={"speakers": "standard.rttm", "speakers_exclusive": "exclusive.rttm",
                              "diarization_stats": "stats.json"},
                       metrics=st, checks=checks, device=state["device"],
                       tools={"model": settings["model"], "model_revision": state["revision"]})

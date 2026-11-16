@@ -8,7 +8,7 @@ import math
 import re
 from pathlib import Path
 
-from ..llm import close_model, open_model
+from ..llm import close_model, leaves_machine_check, open_model, remote_host
 from ..usage import llm_metrics
 from .base import Check, Context, Item, Result, Setting, Stage
 
@@ -94,8 +94,9 @@ class StressRead(Stage):
     label = "Read the stress marks (LLM)"
     version = "1"
     gpu = True
-    needs = ("stress_set", "stress_marks")
-    makes = ("stress_answers",)
+    needs = {"stress_set": "other", "stress_marks": "other"}
+    makes = {"stress_answers": "other"}
+    headline = ("accuracy", "of meanings right")
     settings = {
         "marks": Setting("whistress_given", "Which words are marked: WhiStress given the true transcript, WhiStress "
                          "from the audio alone, only WhiStress's single most stressed word, the set's own labels, "
@@ -120,7 +121,7 @@ class StressRead(Stage):
     }
 
     def setup(self, settings: dict, ctx: Context):
-        return open_model(settings, ctx)
+        return open_model(settings, ctx, settings["context"])
 
     def run(self, item: Item, inputs, out: Path, settings: dict, state, ctx: Context) -> Result:
         from .stress_set import read_set
@@ -180,6 +181,7 @@ class StressRead(Stage):
         if how.get("unparsed"):
             checks.append(Check("unparsed", "warn", how["unparsed"], f"{how['unparsed']} answers named neither "
                                 "option; counted as wrong"))
+        checks += leaves_machine_check(remote_host(settings["endpoint"]))
         return Result(files={"stress_answers": "answers.jsonl"}, metrics=metrics, checks=checks, device="server",
                       tools=state["tools"])
 

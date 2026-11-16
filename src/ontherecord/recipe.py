@@ -19,8 +19,11 @@ so a later change of default cannot silently change what an old run means. A sta
 `on_fail: continue`, which lets later stages run on an item even when one of this stage's checks failed (to
 measure the damage rather than stop at it).
 
-Each input comes from the latest earlier stage that makes it. To wire it differently, name a stage with `as:` and
-point a later stage at it with `from:`. This recipe reproduces how 11 meetings in the ISLS 2027 corpus were made,
+Each input is typed (segments, speakers, audio...; see stages/base.py) and comes from the latest earlier stage that
+makes an artifact of its type: `turns` takes whatever segments came last, from Whisper, from Nemotron or from an
+imported transcript. When that stage makes two of the type, the one named like the input wins, else the first it
+declares. Opaque types (table, other) are wired by name. To wire it differently, name a stage with `as:` and point
+a later stage at it with `from:` (a step, or `step.artifact` to pick one of its outputs). This recipe reproduces how 11 meetings in the ISLS 2027 corpus were made,
 with speaker turns from averaged audio and words from the left channel:
 
       - audio: {channel: average}
@@ -44,9 +47,10 @@ import yaml
 
 from . import stages as registry
 from .hashing import sha256_file, sha256_text
-from .stages.base import Item, Stage
+from .stages.base import OPAQUE, TYPES, Item, Stage
 
 PROMPTS_DIR = Path(__file__).parent / "prompts"
+CODEBOOKS_DIR = Path(__file__).parent / "codebooks"
 YOUTUBE_ID = re.compile(r"(?:v=|youtu\.be/|/shorts/|/live/|/embed/)([A-Za-z0-9_-]{11})")
 BRACKET_ID = re.compile(r"\[([A-Za-z0-9_-]{6,})\]$")
 
@@ -64,8 +68,10 @@ class StageSpec:
     key_settings: dict               # what the cache key hashes: file settings as their sha256
     record_settings: dict            # what receipts and the run record show: file settings as name, hash and text
     on_fail: str = "stop"
-    inputs_from: dict = field(default_factory=dict)   # needed artifact -> name of the earlier stage that makes it
+    inputs_from: dict = field(default_factory=dict)   # input -> name of the earlier step it comes from
     mixed: dict = field(default_factory=dict)         # artifact -> the 2+ earlier stages this step's inputs trace to
+    input_artifacts: dict = field(default_factory=dict)   # input -> which of that step's artifacts it is
+    leaves_machine: str | None = None                     # the remote host its endpoint sends to (allowed: D5)
 
     @property
     def stage(self) -> str:
@@ -74,7 +80,7 @@ class StageSpec:
 
     def info(self) -> dict:
         return {"name": self.name, "stage": self.stage, "label": self.cls.label, "from": self.inputs_from,
-                "mixed": self.mixed, "on_fail": self.on_fail}
+                "from_artifact": self.input_artifacts, "mixed": self.mixed, "on_fail": self.on_fail}
 
 
 @dataclass
@@ -145,10 +151,10 @@ def load_items(source: dict, base: Path) -> list[Item]:
 
 
 def resolve_file(value: str, base: Path) -> Path:
-    for cand in (Path(value).expanduser(), base / value, PROMPTS_DIR / value):
+    for cand in (Path(value).expanduser(), base / value, PROMPTS_DIR / value, CODEBOOKS_DIR / value):
         if cand.is_file():
             return cand.resolve()
-    raise RecipeError(f"file not found: {value} (looked beside the recipe and in {PROMPTS_DIR})")
+    raise RecipeError(f"file not found: {value} (looked beside the recipe, in {PROMPTS_DIR} and in {CODEBOOKS_DIR})")
 
 
 def resolve_settings(cls: type[Stage], given: dict, base: Path) -> tuple[dict, dict, dict]:
@@ -160,7 +166,11 @@ def resolve_settings(cls: type[Stage], given: dict, base: Path) -> tuple[dict, d
         v = given.get(k, s.default)
         if s.choices and v not in s.choices:
             raise RecipeError(f"{cls.name}.{k} = {v!r}; choose one of {s.choices}")
-        if s.kind == "file":
+        if s.kind == "file" and v in ("", None):   # an optional file left out: nothing to read or hash
+            run[k], record[k] = "", None
+            if s.in_key:
+                key[k] = None
+        elif s.kind == "file":
             path = resolve_file(str(v), base)
             text = path.read_text(encoding="utf-8")
             run[k] = text
@@ -179,10 +189,29 @@ def resolve_settings(cls: type[Stage], given: dict, base: Path) -> tuple[dict, d
 STEP_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,47}$")
 
 
+def wire_key(name: str, typ: str) -> str:
+    """What an input is matched on: its type, or for an opaque type its name too."""
+    return f"{typ}:{name}" if typ in OPAQUE else typ
+
+
+def pick_artifact(makes: dict[str, str], need: str, typ: str) -> str | None:
+    """Which of a step's outputs fills an input: of the input's type, the one named like the input, else the first."""
+    cands = [a for a, t in makes.items() if wire_key(a, t) == wire_key(need, typ)]
+    return need if need in cands else (cands[0] if cands else None)
+
+
+def check_declaration(cls: type[Stage]) -> None:
+    for kind in ("needs", "makes"):
+        decl = getattr(cls, kind)
+        if not isinstance(decl, dict) or any(t not in TYPES for t in decl.values()):
+            raise RecipeError(f"stage {cls.name}: {kind} must map names to artifact types ({', '.join(TYPES)}); "
+                              f"got {decl!r}")
+
+
 def parse_stages(entries: list, base: Path) -> list[StageSpec]:
     specs: list[StageSpec] = []
     by_name: dict[str, StageSpec] = {}
-    latest: dict[str, str] = {}                  # artifact -> the latest step that makes it
+    latest: dict[str, str] = {}                  # wire key (type) -> the latest step that makes one
     upstream: dict[str, dict[str, set]] = {}     # step -> artifact -> every step upstream of it that made one
     for i, entry in enumerate(entries or []):
         if isinstance(entry, str):
@@ -195,6 +224,7 @@ def parse_stages(entries: list, base: Path) -> list[StageSpec]:
         if extra:
             raise RecipeError(f"stage entry {name}: unknown key(s) {sorted(extra)}")
         cls = registry.get(name)
+        check_declaration(cls)
         step = str(entry.get("as") or name)
         if not STEP_NAME.match(step):
             raise RecipeError(f"{name}: as: {step!r} must be a letter then letters, digits, _ or -")
@@ -207,17 +237,24 @@ def parse_stages(entries: list, base: Path) -> list[StageSpec]:
             raise RecipeError(f"{step}: from: maps the inputs it needs ({list(cls.needs)}) to earlier stages; "
                               f"got {wiring}")
         inputs_from: dict[str, str] = {}
-        for n in cls.needs:
-            src = wiring.get(n, latest.get(n))
+        input_artifacts: dict[str, str] = {}
+        for n, typ in cls.needs.items():
+            ref = wiring.get(n)
+            src, _, art = str(ref).partition(".") if ref else (latest.get(wire_key(n, typ)), "", "")
             if src is None:
-                raise RecipeError(f"{step} needs {n}, which no earlier stage makes")
-            if src not in by_name or n not in by_name[src].cls.makes:
-                raise RecipeError(f"{step}: from {n}: {src!r} is not an earlier stage that makes {n}")
-            inputs_from[n] = str(src)
+                raise RecipeError(f"{step} needs {n} ({typ}), which no earlier stage makes")
+            src_makes = by_name[src].cls.makes if src in by_name else {}
+            if art and src_makes.get(art) != typ:
+                raise RecipeError(f"{step}: from {n}: {src!r} is not an earlier stage that makes {art} as {typ}")
+            art = art or pick_artifact(src_makes, n, typ)
+            if not art:
+                raise RecipeError(f"{step}: from {n}: {src!r} is not an earlier stage that makes {n} ({typ})")
+            inputs_from[n], input_artifacts[n] = str(src), art
         ups: dict[str, set] = {}
         already_mixed = set()
         for n, src in inputs_from.items():
-            for art, steps in [*upstream[src].items(), (n, {src})]:
+            # traced by the producer's artifact name: transcript -> aligned -> turns is one line, not a mix
+            for art, steps in [*upstream[src].items(), (input_artifacts[n], {src})]:
                 ups.setdefault(art, set()).update(steps)
                 if len(steps) > 1:
                     already_mixed.add(art)
@@ -228,11 +265,12 @@ def parse_stages(entries: list, base: Path) -> list[StageSpec]:
             raise RecipeError(f"{step}: on_fail must be 'stop' or 'continue'")
         # Flagged only where the mixing first happens; the stages after it inherit it.
         spec = StageSpec(step, cls, given, run, key, record, on_fail, inputs_from,
-                         {a: sorted(s) for a, s in ups.items() if len(s) > 1 and a not in already_mixed})
+                         {a: sorted(s) for a, s in ups.items() if len(s) > 1 and a not in already_mixed},
+                         input_artifacts)
         specs.append(spec)
         by_name[step] = spec
         upstream[step] = ups
-        latest.update({m: step for m in cls.makes})
+        latest.update({wire_key(m, t): step for m, t in cls.makes.items()})
     if not specs:
         raise RecipeError("the recipe lists no stages")
     return specs

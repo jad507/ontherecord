@@ -28,7 +28,7 @@ from pathlib import Path
 from .config import MachineConfig
 from .envinfo import gpu
 from .hashing import cache_key
-from .recipe import Recipe, StageSpec, source_identity
+from .recipe import Recipe, RecipeError, StageSpec, source_identity
 from .store import Store, write_json_atomic
 
 SRC_DIR = Path(__file__).resolve().parents[1]
@@ -74,8 +74,10 @@ class Cancelled(Exception):
 
 
 class Runner:
-    def __init__(self, recipe: Recipe, cfg: MachineConfig, run_id: str | None = None, log=print):
+    def __init__(self, recipe: Recipe, cfg: MachineConfig, run_id: str | None = None, log=print,
+                 machine: dict | None = None):
         self.recipe, self.cfg, self.log = recipe, cfg, log
+        self._resolve(machine)
         self.store = Store(cfg.workspace)
         self.run_id = run_id or new_run_id(recipe.name, lambda r: self.store.run_dir(r).exists())
         self.dir = self.store.run_dir(self.run_id)
@@ -86,6 +88,31 @@ class Runner:
         self._by_name = {s.name: s for s in recipe.stages}
         self._traces: dict[tuple[str, str], tuple[dict, list]] = {}
 
+    def _resolve(self, machine: dict | None) -> None:
+        """Let each stage settle machine-dependent settings (device: auto) before any key is made (audit D3)."""
+        from .stages.base import UserError
+        from .llm import check_endpoint
+        if machine is None:
+            from .hwdetect import machine as detect
+            machine = detect()
+        for spec in self.recipe.stages:
+            try:   # D5: any stage with an endpoint setting is refused here when it would leave this machine
+                spec.leaves_machine = check_endpoint(str(spec.run_settings.get("endpoint") or ""),
+                                                     self.cfg.allow_remote_endpoints)
+            except UserError as e:
+                raise RecipeError(f"{spec.name}: {e}") from None
+            try:
+                new = spec.cls.resolve(dict(spec.run_settings), machine)
+            except UserError as e:
+                raise RecipeError(f"{spec.name}: {e}") from None
+            for k, v in new.items():
+                if v == spec.run_settings.get(k) or spec.cls.settings[k].kind == "file":
+                    continue
+                spec.run_settings[k] = v
+                spec.record_settings[k] = v
+                if spec.cls.settings[k].in_key:
+                    spec.key_settings[k] = v
+
     # ------------------------------------------------------------------ keys
     # `arts` is one item's outputs so far: step name -> artifact -> {path, sha256, step, lineage}, where lineage maps
     # every artifact upstream of that output to {sha256: step that made it}.
@@ -95,7 +122,7 @@ class Runner:
                 item = next(i for i in self.recipe.items if i.id == item_id)
                 self._source_ids[item_id] = source_identity(item)
             return {"source": self._source_ids[item_id]}
-        return {n: arts[src][n]["sha256"] for n, src in spec.inputs_from.items()}
+        return {n: arts[src][spec.input_artifacts[n]]["sha256"] for n, src in spec.inputs_from.items()}
 
     def key_for(self, spec: StageSpec, item_id: str, arts: dict) -> str:
         return cache_key(spec.stage, spec.cls.version, item_id, spec.key_settings,
@@ -108,8 +135,8 @@ class Runner:
         lineage: dict[str, dict] = {}
         inherited = set()
         for n, src in spec.inputs_from.items():
-            a = arts[src][n]
-            for art, shas in [*a["lineage"].items(), (n, {a["sha256"]: src})]:
+            a = arts[src][spec.input_artifacts[n]]
+            for art, shas in [*a["lineage"].items(), (spec.input_artifacts[n], {a["sha256"]: src})]:
                 lineage.setdefault(art, {}).update(shas)
                 if len(shas) > 1:
                     inherited.add(art)
@@ -132,6 +159,8 @@ class Runner:
             blocked = False
             for spec in self.recipe.stages:
                 note = {"mixed": spec.mixed} if spec.mixed else {}
+                if spec.leaves_machine:
+                    note["leaves_machine"] = spec.leaves_machine
                 if blocked:
                     row[spec.name] = {"status": "blocked", **note}
                     continue
@@ -171,7 +200,8 @@ class Runner:
             "machine_config": self.cfg.describe(),
             "stages": [{"name": s.name, "stage": s.stage, "label": s.cls.label, "version": s.cls.version,
                         "group": s.cls.group, "settings": s.record_settings, "on_fail": s.on_fail,
-                        "from": s.inputs_from, "mixed": s.mixed} for s in self.recipe.stages],
+                        "needs": dict(s.cls.needs), "makes": dict(s.cls.makes), "from": s.inputs_from,
+                        "from_artifact": s.input_artifacts, "mixed": s.mixed} for s in self.recipe.stages],
             "items": [i.as_dict() for i in self.recipe.items],
             "cells": {i.id: {s.name: {"status": "pending"} for s in self.recipe.stages} for i in self.recipe.items},
         }
@@ -262,9 +292,9 @@ class Runner:
         for item, key in pending:
             inputs = {}
             for n, src in spec.inputs_from.items():
-                a = arts[item.id][src][n]
-                inputs[n] = {"path": a["path"], "sha256": a["sha256"],
-                             "from_stage": self._by_name[src].stage, "from_step": src}
+                a = arts[item.id][src][spec.input_artifacts[n]]
+                inputs[n] = {"path": a["path"], "sha256": a["sha256"], "from_stage": self._by_name[src].stage,
+                             "from_step": src, "artifact": spec.input_artifacts[n], "type": spec.cls.needs[n]}
             items.append({"item": item.as_dict(), "key": key, "inputs": inputs,
                           "entry": str(self.store.entry(spec.stage, item.id, key))})
             self._cell(item.id, spec.name, status="queued", key=key)

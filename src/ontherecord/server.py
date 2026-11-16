@@ -63,7 +63,8 @@ class TokenCheckIn(BaseModel):
 class TranscribeIn(BaseModel):
     sources: list[str]
     with_comments: bool = False
-    language: str | None = None  # None: the stage's default (en); "": let Whisper detect it
+    language: str | None = None  # None or "": let Whisper detect it; else a language code
+    show: bool = False           # return the recipe without queueing it (the Build tab opens it)
 
 
 class RevealIn(BaseModel):
@@ -72,11 +73,12 @@ class RevealIn(BaseModel):
 
 class ReviewNewIn(BaseModel):
     run: str
-    kind: str                     # comments, speakers, transcript, check
+    kind: str                     # codes, speakers, transcript, check
     sample: int | None = 100      # check: 0 or None for every turn
     name: str | None = None
     blind: bool = False
     codes: list[str] | None = None
+    step: str | None = None       # codes: which coding step (default: the latest)
 
 
 class ReviewAnswerIn(BaseModel):
@@ -330,7 +332,7 @@ def create_app(cfg: MachineConfig, dispatch: bool = True, extra_hosts: tuple[str
         from . import reviews
         try:
             spec = reviews.from_run(store.root, body.run, body.kind, body.sample, name=body.name, blind=body.blind,
-                                    codes=body.codes)
+                                    codes=body.codes, step=body.step)
             return reviews.progress(cfg.workspace, reviews.create(cfg.workspace, spec))
         except (ValueError, FileNotFoundError) as e:
             raise HTTPException(422, str(e))
@@ -670,10 +672,12 @@ def create_app(cfg: MachineConfig, dispatch: bool = True, extra_hosts: tuple[str
         if bad:
             raise HTTPException(422, f"Give the whole path of each file: {', '.join(bad)}")
         missing = presets.missing_models(cfg, body.with_comments)
-        if missing:
+        if missing and not body.show:
             raise HTTPException(422, f"Download these models first (Setup, step 3): {', '.join(missing)}")
         text = presets.transcript_recipe([x if presets.is_link(x) else str(Path(x).expanduser()) for x in sources],
                                          body.with_comments, body.language)
+        if body.show:
+            return {"recipe": text}
         from .usage import estimate_text
         try:
             est = estimate_text(cfg, text, recipes_dir, rates())

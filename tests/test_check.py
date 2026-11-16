@@ -36,31 +36,51 @@ def test_lines_are_grouped_into_whisper_windows():
     assert windows(segs, 0.2) == [[0, 1, 2], [3], [4], [5]]  # a line longer than a window gets one of its own
 
 
-def words_json(store: Path) -> dict:
-    w = lambda t, s, alts=None: {"w": t, "s": s, "e": s + 0.4, "p": 0.5 if alts else 0.99, **({"alts": alts} if alts else {})}
-    return {"model": "large-v3", "segments": [
-        {"start": 0.0, "end": 2.0, "speaker": "SPEAKER_00", "text": "there is a plan",
-         "words": [w("there", 0.0, [{"t": "their", "p": 0.3, "n": 1}]), w("is", 0.5), w("a", 1.0), w("plan", 1.5)]},
-        {"start": 2.2, "end": 4.0, "speaker": "SPEAKER_00", "text": "going to go",
-         "words": [w("going", 2.2, [{"t": "gonna", "p": 0.2, "n": 2}]), w("to", 2.7), w("go", 3.2)]},
-        {"start": 9.0, "end": 10.0, "speaker": "SPEAKER_01", "text": "thanks", "words": [w("thanks", 9.0)]},
+def words_json() -> dict:
+    w = lambda t, s, alts=None: {"start": s, "end": s + 0.4, "word": t, "p": 0.5 if alts else 0.99,  # noqa: E731
+                                 **({"alts": alts} if alts else {})}
+    return {"format": "segments/1", "unit": "segment", "units": [
+        {"id": "s0000", "start": 0.0, "end": 2.0, "speaker": "SPEAKER_00", "text": "there is a plan",
+         "words": [w("there", 0.0, [{"word": "their", "p": 0.3, "replaces": 1}]), w("is", 0.5), w("a", 1.0),
+                   w("plan", 1.5)]},
+        {"id": "s0001", "start": 2.2, "end": 4.0, "speaker": "SPEAKER_00", "text": "going to go",
+         "words": [w("going", 2.2, [{"word": "gonna", "p": 0.2, "replaces": 2}]), w("to", 2.7), w("go", 3.2)]},
+        {"id": "s0002", "start": 9.0, "end": 10.0, "speaker": "SPEAKER_01", "text": "thanks",
+         "words": [w("thanks", 9.0)]},
     ]}
+
+
+def typed_run(store: Path, run_id: str, steps: list[tuple[str, dict, dict, dict, str, object]],
+              items=({"id": "rec1", "url": "https://www.youtube.com/watch?v=x"},)) -> None:
+    """A finished typed run: each step is (name, needs, makes, from, file name, content) for item rec1."""
+    stages, cells = [], {}
+    for name, needs, makes, frm, fname, body in steps:
+        art = next(iter(makes))
+        out = store / "store" / name / "rec1" / "k"
+        out.mkdir(parents=True)
+        (out / fname).write_text(body if isinstance(body, str) else json.dumps(body))
+        (out / "receipt.json").write_text(json.dumps({"outputs": {art: {"file": fname}}, "checks": []}))
+        stages.append({"name": name, "stage": name, "needs": needs, "makes": makes,
+                       "from": {n: s for n, (s, _) in frm.items()}, "from_artifact": {n: a for n, (_, a) in frm.items()},
+                       "settings": {}})
+        cells[name] = {"status": "ran", "receipt": f"store/{name}/rec1/k/receipt.json"}
+    (store / "runs" / run_id).mkdir(parents=True)
+    (store / "runs" / run_id / "run.json").write_text(json.dumps({
+        "run_id": run_id, "name": "test", "items": list(items), "stages": stages, "cells": {"rec1": cells}}))
 
 
 @pytest.fixture
 def check_set(tmp_path):
-    store = tmp_path
-    for stage, name, body in (("word_choices", "words.json", json.dumps(words_json(store))), ("audio", "audio.flac", "")):
-        out = store / "store" / stage / "rec1" / "k"
-        out.mkdir(parents=True)
-        (out / name).write_text(body)
-        (out / "receipt.json").write_text(json.dumps({"outputs": {name.split(".")[0]: {"file": name}}}))
-    run = {"run_id": "r1", "name": "check test", "items": [{"id": "rec1", "url": "https://www.youtube.com/watch?v=x"}],
-           "stages": [{"name": "audio", "stage": "audio"}, {"name": "word_choices", "stage": "word_choices"}],
-           "cells": {"rec1": {st: {"receipt": f"store/{st}/rec1/k/receipt.json"} for st in ("audio", "word_choices")}}}
-    (store / "runs" / "r1").mkdir(parents=True)
-    (store / "runs" / "r1" / "run.json").write_text(json.dumps(run))
-    spec = reviews.from_run(store, "r1", "check", None, codes=["Public comment", "Question"])
+    from ontherecord.artifacts import segments
+    from ontherecord.stages.turns import merge
+    words = words_json()
+    typed_run(tmp_path, "r1", [
+        ("audio", {}, {"audio": "audio"}, {}, "audio.flac", ""),
+        ("word_choices", {"audio": "audio", "units": "segments"}, {"words": "segments"},
+         {"audio": ("audio", "audio")}, "words.json", words),
+        ("turns", {"units": "segments"}, {"turns": "segments"}, {"units": ("word_choices", "words")}, "turns.json",
+         segments(merge(words["units"], 5.0, 60.0), "turn"))])
+    spec = reviews.from_run(tmp_path, "r1", "check", None, codes=["Public comment", "Question"])
     return tmp_path, reviews.create(tmp_path, spec)
 
 

@@ -8,7 +8,7 @@
     ontherecord receipt RUN_ID ITEM STAGE  the full receipt behind one cell
     ontherecord transcribe FILE|LINK...    queue speaker-labelled transcripts, set for this machine (no recipe needed)
     ontherecord usage                      compute hours, tokens and their API-price equivalent, speeds by version
-    ontherecord review new RUN --kind K    a set to check by hand (comments, speakers, transcript, check); list, score, export
+    ontherecord review new RUN --kind K    a set to check by hand (codes, speakers, transcript, check); list, score, export
 
   The job queue (the same one the GUI uses; one job at a time per workspace):
     ontherecord submit RECIPE [--wait]     queue a run; prints its run id
@@ -283,8 +283,7 @@ def cmd_review(args) -> int:
     try:
         if a == "new":
             spec = reviews.from_run(ws, target, args.kind, args.sample, name=args.name, blind=args.blind,
-                                    codes=args.codes.split(",") if args.codes else None,
-                                    turn_seconds=args.turn_seconds)
+                                    codes=args.codes.split(",") if args.codes else None, step=args.step)
         elif a == "create":
             spec = json.loads(Path(target).read_text(encoding="utf-8"))
         if a in ("new", "create"):
@@ -304,7 +303,7 @@ def cmd_review(args) -> int:
                 agree = f", agrees {p['agreement']:.0%} with {p['machine_label']}" if p["agreement"] is not None else ""
                 print(f"{p['id']:44} {p['kind']:7} {p['answered']:4}/{p['items']:<4}{left}{agree}")
             if not sets:
-                print("No reviews yet: `ontherecord review new RUN --kind comments|speakers|transcript`.")
+                print("No reviews yet: `ontherecord review new RUN --kind codes|speakers|transcript|check`.")
             return 0
         s = reviews.load(ws, target)
         log = reviews.rows(ws, target)
@@ -706,8 +705,8 @@ def main(argv: list[str] | None = None) -> int:
                                           "that suit this machine (no recipe needed)")
     p.add_argument("sources", nargs="+", help="video or audio links, or files (globs are fine)")
     p.add_argument("--comments", action="store_true", help="also list the public comments (a large language model)")
-    p.add_argument("--language", default=None, help="language code (default: the transcribe stage's, en)")
-    p.add_argument("--detect-language", action="store_true", help="let Whisper detect the language")
+    p.add_argument("--language", default=None, help="language code, e.g. en (default: Whisper detects it)")
+    p.add_argument("--detect-language", action="store_true", help="let Whisper detect the language (the default)")
     p.add_argument("--show", action="store_true", help="print the recipe instead of queueing it")
     p.add_argument("--wait", action="store_true", help="then follow it until it ends (exit code as for wait)")
     p.add_argument("--json", action="store_true")
@@ -715,10 +714,10 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("review", help="sets of items to check by hand, and how the machine scores against them")
     p.add_argument("action", choices=["list", "new", "create", "status", "score", "export"])
     p.add_argument("target", nargs="?", help="new: a run id; create: a JSON set file; status/score/export: a set id")
-    p.add_argument("--kind", choices=["comments", "speakers", "transcript", "check"], default="comments")
-    p.add_argument("--sample", type=int, help="how many items (comments, transcript: 100; check: every turn)")
+    p.add_argument("--kind", choices=["codes", "speakers", "transcript", "check"], default="codes")
+    p.add_argument("--step", help="codes: which coding step of the run (default: the latest)")
+    p.add_argument("--sample", type=int, help="how many items (codes, transcript: 100; check: every turn)")
     p.add_argument("--codes", help="check: names for the code keys 1-5 then Q-T, comma-separated")
-    p.add_argument("--turn-seconds", type=float, default=60.0, help="check: longest part of a speaker turn")
     p.add_argument("--name")
     p.add_argument("--blind", action="store_true", help="transcript: write lines from scratch instead of correcting")
     p.add_argument("--out", help="export: a CSV file (default: standard output)")
