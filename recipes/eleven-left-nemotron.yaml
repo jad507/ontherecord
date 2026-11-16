@@ -5,9 +5,13 @@ description: >-
   longer than an hour are cut into pieces, and speakers are numbered per piece.
 source:
   url_file: eleven-meetings.txt
+# Nemotron on a 16 GB Blackwell card (shiro, Nov 16): the NVFP4 checkpoint, 10 GiB of its experts in RAM, and 92% of
+# the card for vLLM (at the card's 85% no room is left for its cache). It needs about 24 GiB of free RAM to start,
+# and the first start builds FlashInfer kernels (prebuild them without the model on a 30 GiB machine: STATUS.md).
+# FP8 needs about 30 GiB free. Speakers come with the words, so there is no diarize or align.
 stages:
   - download: {}
   - audio: {channel: left}
-  - nemotron_transcribe: {model: nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B-NVFP4}   # Blackwell only; FP8 needs ~30 GiB free RAM on a 16 GB card. Speakers included: no align
+  - nemotron_transcribe: {model: nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B-NVFP4, gpu_memory_utilization: 0.92}   # see below
   - turns: {max_gap_s: 30, max_turn_s: null}   # as the study cut its speech blocks
   - code: {codebook: public-comment.yaml, instructions: extract_public_comments_v1.txt, mode: find, context: whole}
