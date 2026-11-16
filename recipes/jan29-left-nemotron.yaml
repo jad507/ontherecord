@@ -1,0 +1,14 @@
+name: jan29-left-nemotron
+description: >-
+  One meeting (Jan 29, 2026, 31 minutes) through Nemotron 3.5 Transcribe instead of pyannote and Whisper: a check
+  that the transcriber runs here before eleven-left-nemotron, and the smallest Whisper-against-Nemotron comparison
+  (compare with jan29-left-comments).
+source:
+  urls:
+    - https://www.youtube.com/watch?v=Kr5f5_Rt90Q
+stages:
+  - download: {}
+  - audio: {channel: left}
+  - nemotron_transcribe: {}   # segments with speakers already: no align
+  - turns: {max_gap_s: 30, max_turn_s: null}
+  - code: {codebook: public-comment.yaml, instructions: extract_public_comments_v1.txt, mode: find, context: whole}
