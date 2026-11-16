@@ -18,10 +18,18 @@ def is_link(source: str) -> bool:
     return bool(re.match(r"https?://", source.strip(), re.I))
 
 
+TRANSCRIBERS = ("whisper", "nemotron")
+
+
 def transcript_recipe(sources: list[str], with_comments: bool = False, language: str | None = None,
-                      name: str | None = None, choice: dict | None = None) -> str:
+                      name: str | None = None, choice: dict | None = None, transcriber: str = "whisper",
+                      whisper_model: str | None = None) -> str:
     """Recipe text for these links and files (files absolute, or globs). `choice` is bootstrap.fit(); by default,
-    this machine's."""
+    this machine's. transcriber: whisper (pyannote for speakers, Whisper for words, joined by align; whisper_model
+    overrides the machine's choice, e.g. large-v3-turbo) or nemotron (Nemotron 3.5 Transcribe, speakers and words in
+    one model; the checkpoint the card suits)."""
+    if transcriber not in TRANSCRIBERS:
+        raise ValueError(f"transcriber must be one of {', '.join(TRANSCRIBERS)}")
     sources = [s.strip() for s in sources if s and s.strip()]
     if not sources:
         raise ValueError("give at least one link or file")
@@ -31,14 +39,18 @@ def transcript_recipe(sources: list[str], with_comments: bool = False, language:
     if not name:
         what = "transcript and comments" if with_comments else "transcript"
         name = f"{what} of {len(sources)}" if len(sources) > 1 else f"{what} {Path(files[0]).stem}" if files else what
-    transcribe = {"model": choice["whisper"], "compute_type": choice["whisper_compute"]}
+    transcribe = {"model": whisper_model or choice["whisper"], "compute_type": choice["whisper_compute"]}
     if language is not None:
         transcribe["language"] = language
     # With comments, turns are cut as the council study cut its speech blocks, and the code stage reads the whole
     # meeting with the paper's prompt (as recipes/eleven-left.yaml does).
     turns = {"max_gap_s": 30, "max_turn_s": None} if with_comments else {}
-    stages = [("download", {}), ("audio", {}), ("diarize", {}), ("transcribe", transcribe), ("align", {}),
-              ("turns", turns)]
+    if transcriber == "nemotron":
+        repo = bootstrap.MODELS[choice["nemotron"]]["repo"]
+        stages = [("download", {}), ("audio", {}), ("nemotron_transcribe", {"model": repo}), ("turns", turns)]
+    else:
+        stages = [("download", {}), ("audio", {}), ("diarize", {}), ("transcribe", transcribe), ("align", {}),
+                  ("turns", turns)]
     if with_comments:
         stages.append(("code", {"codebook": "public-comment.yaml", "instructions": "extract_public_comments_v1.txt",
                                 "mode": "find", "context": "whole",
@@ -52,9 +64,29 @@ def transcript_recipe(sources: list[str], with_comments: bool = False, language:
             + "".join(f"  - {stage}: {json.dumps(s, separators=(', ', ': ')) if s else '{}'}\n" for stage, s in stages))
 
 
-def missing_models(cfg, with_comments: bool = False, choice: dict | None = None) -> list[str]:
+def missing_models(cfg, with_comments: bool = False, choice: dict | None = None, transcriber: str = "whisper",
+                   whisper_model: str | None = None) -> list[str]:
     """Catalog models this preset needs that are not downloaded yet (runs are offline, so they must be here)."""
     choice = choice or bootstrap.fit(bootstrap.hardware())
-    need = [f"whisper-{choice['whisper']}", "pyannote-community-1"] + ([choice["extraction"]] if with_comments else [])
+    if transcriber == "nemotron":
+        need = [choice["nemotron"]] if choice.get("nemotron") else []
+    else:
+        need = [f"whisper-{whisper_model or choice['whisper']}", "pyannote-community-1"]
+    need += [choice["extraction"]] if with_comments else []
     status = bootstrap.model_status(cfg.models_root or bootstrap.home_dir() / "models")
     return [n for n in need if status.get(n) is not True]
+
+
+def transcriber_problem(cfg, transcriber: str, choice: dict | None = None) -> str | None:
+    """Why this machine cannot use that transcriber, in a sentence with the fix; None when it can (models aside:
+    missing_models says which to download)."""
+    if transcriber != "nemotron":
+        return None
+    choice = choice or bootstrap.fit(bootstrap.hardware())
+    if not choice.get("nemotron"):
+        return "Nemotron 3.5 Transcribe needs an NVIDIA card; use the Whisper transcriber here."
+    binary = cfg.tool("nemotron_vllm")
+    if not binary or not Path(binary).expanduser().is_file():
+        return ("Nemotron 3.5 Transcribe runs in its own vLLM environment, which this machine does not have: run "
+                "install/nemotron-vllm.sh and name its .venv/bin/vllm as tools.nemotron_vllm in machine.yaml.")
+    return None

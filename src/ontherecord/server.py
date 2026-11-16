@@ -65,6 +65,8 @@ class TranscribeIn(BaseModel):
     with_comments: bool = False
     language: str | None = None  # None or "": let Whisper detect it; else a language code
     show: bool = False           # return the recipe without queueing it (the Build tab opens it)
+    transcriber: str = "whisper"  # or "nemotron" (presets.TRANSCRIBERS)
+    whisper_model: str | None = None  # None: this machine's choice
 
 
 class RevealIn(BaseModel):
@@ -671,11 +673,18 @@ def create_app(cfg: MachineConfig, dispatch: bool = True, extra_hosts: tuple[str
         bad = [x for x in sources if not presets.is_link(x) and not Path(x).expanduser().is_absolute()]
         if bad:
             raise HTTPException(422, f"Give the whole path of each file: {', '.join(bad)}")
-        missing = presets.missing_models(cfg, body.with_comments)
+        if body.transcriber not in presets.TRANSCRIBERS:
+            raise HTTPException(422, f"transcriber must be one of {', '.join(presets.TRANSCRIBERS)}")
+        problem = presets.transcriber_problem(cfg, body.transcriber)
+        if problem and not body.show:
+            raise HTTPException(422, problem)
+        missing = presets.missing_models(cfg, body.with_comments, transcriber=body.transcriber,
+                                         whisper_model=body.whisper_model)
         if missing and not body.show:
             raise HTTPException(422, f"Download these models first (Setup, step 3): {', '.join(missing)}")
         text = presets.transcript_recipe([x if presets.is_link(x) else str(Path(x).expanduser()) for x in sources],
-                                         body.with_comments, body.language)
+                                         body.with_comments, body.language, transcriber=body.transcriber,
+                                         whisper_model=body.whisper_model)
         if body.show:
             return {"recipe": text}
         from .usage import estimate_text

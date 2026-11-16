@@ -248,13 +248,19 @@ def cmd_transcribe(args) -> int:
     from . import presets
     from .jobs import JobQueue
     cfg = config_from(args)
-    missing = presets.missing_models(cfg, args.comments)
-    if missing:
+    problem = presets.transcriber_problem(cfg, args.transcriber)
+    if problem and not args.show:
+        print(problem, file=sys.stderr)
+        return 2
+    missing = presets.missing_models(cfg, args.comments, transcriber=args.transcriber,
+                                     whisper_model=args.whisper_model)
+    if missing and not args.show:
         print(f"first download {', '.join(missing)}: `ontherecord models get {' '.join(missing)}` (the speaker model "
               "needs a Hugging Face token; see INSTALL.md), or use the Setup tab", file=sys.stderr)
         return 2
     sources = [s if presets.is_link(s) else str(Path(s).expanduser().resolve()) for s in args.sources]
-    text = presets.transcript_recipe(sources, args.comments, "" if args.detect_language else args.language)
+    text = presets.transcript_recipe(sources, args.comments, "" if args.detect_language else args.language,
+                                     transcriber=args.transcriber, whisper_model=args.whisper_model)
     if args.show:
         print(text, end="")
         return 0
@@ -707,6 +713,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--comments", action="store_true", help="also list the public comments (a large language model)")
     p.add_argument("--language", default=None, help="language code, e.g. en (default: Whisper detects it)")
     p.add_argument("--detect-language", action="store_true", help="let Whisper detect the language (the default)")
+    p.add_argument("--transcriber", choices=["whisper", "nemotron"], default="whisper",
+                   help="whisper: pyannote for speakers and Whisper for words (default); nemotron: Nemotron 3.5 "
+                        "Transcribe, both in one model (an NVIDIA card and its own vLLM environment)")
+    p.add_argument("--whisper-model", default=None,
+                   help="which Whisper, e.g. large-v3 or large-v3-turbo (default: the one that suits this machine)")
     p.add_argument("--show", action="store_true", help="print the recipe instead of queueing it")
     p.add_argument("--wait", action="store_true", help="then follow it until it ends (exit code as for wait)")
     p.add_argument("--json", action="store_true")

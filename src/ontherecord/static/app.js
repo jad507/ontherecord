@@ -1005,6 +1005,10 @@ $("#setup").addEventListener("click", async (e) => {
 
 // ---------------------------------------------------------------- transcribe a recording (the ready-made recipe)
 // Setup's step 5 and the Library's button: files or a link in, a job set for this computer out, followed to the end.
+// Which model turns speech into text (presets.TRANSCRIBERS); "whisper:" is the size that suits this machine
+const TRANSCRIBERS = [["whisper:", "Whisper (pyannote for speakers)"],
+  ["whisper:large-v3-turbo", "Whisper turbo (faster, a little less accurate)"],
+  ["nemotron", "Nemotron 3.5 Transcribe (speakers and words in one model; NVIDIA, its own setup)"]];
 const LANGS = [["", "Detect the language"], ["en", "English"], ["es", "Spanish"], ["fr", "French"], ["de", "German"],
   ["pt", "Portuguese"], ["it", "Italian"], ["zh", "Chinese"], ["ja", "Japanese"], ["ko", "Korean"], ["ar", "Arabic"], ["hi", "Hindi"], ["ru", "Russian"]];
 function transcribeForm(el, setup = null) {
@@ -1016,6 +1020,7 @@ function transcribeForm(el, setup = null) {
       <input data-tx="src" placeholder="…or paste a link, or a file's whole path" style="margin:0"></div>
     <div class="muted" data-tx="chosen" style="margin:4px 0"></div>
     <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin:6px 0">
+      <label style="margin:0">Transcriber <select data-tx="engine" style="display:inline-block;width:auto;margin-left:4px">${TRANSCRIBERS.map(([v, t]) => `<option value="${v}">${t}</option>`).join("")}</select></label>
       <label style="margin:0">Language <select data-tx="lang" style="display:inline-block;width:auto;margin-left:4px">${LANGS.map(([v, t]) => `<option value="${v}">${t}</option>`).join("")}</select></label>
       <label style="margin:0"><input type="checkbox" data-tx="comments"> Also list the public comments (slower: a large language model${extraction && extraction.status !== true ? "; download it in step 3 first" : ""})</label></div>
     <button data-tx="go">Transcribe</button> <span class="msg" data-tx="msg"></span>`;
@@ -1029,10 +1034,12 @@ function transcribeForm(el, setup = null) {
     });
     if (t === "go") {
       const typed = q("src").value.trim(), lang = q("lang").value;
+      const [transcriber, whisperModel] = q("engine").value.split(":");
       const sources = chosen.concat(typed ? [typed] : []);
       say("Queueing…");
       try {
-        const r = await api("/api/transcribe", { json: { sources, with_comments: q("comments").checked, language: lang || null } });
+        const r = await api("/api/transcribe", { json: { sources, with_comments: q("comments").checked, language: lang || null,
+                                                       transcriber, whisper_model: whisperModel || null } });
         say(`Queued as <code>${esc(r.run_id)}</code>.${r.estimate && r.estimate.text ? ` Expected: ${esc(r.estimate.text)}.` : ""}`, "ok");
         followJob(r.run_id, (html, kind) => { if (document.body.contains(el)) say(html, kind); });
       } catch (err) { say(esc(err.message), "err"); }

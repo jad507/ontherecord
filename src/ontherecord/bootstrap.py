@@ -217,6 +217,10 @@ def fit(hw: dict) -> dict:
                                else "-ngl 0"),
         "whisper": whisper,
         "whisper_compute": compute,
+        # Nemotron 3.5 Transcribe, when chosen: NVFP4 on Blackwell (21.6 GB), else FP8 (34.7 GB); both need an
+        # NVIDIA card and vLLM's own environment, and keep part of the model in RAM on cards under 48 GB.
+        "nemotron": (("nemotron-3.5-transcribe-nvfp4" if cc >= (10, 0) else "nemotron-3.5-transcribe-fp8")
+                     if g.get("vendor") == "nvidia" else None),
     }
 
 

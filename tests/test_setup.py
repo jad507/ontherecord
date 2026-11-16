@@ -178,10 +178,10 @@ def client(tmp_path, monkeypatch):
 def test_transcribe_endpoint(client, monkeypatch):
     c, tmp = client
     (tmp / "talk.wav").write_bytes(b"\0")
-    monkeypatch.setattr(presets, "missing_models", lambda cfg, comments=False, choice=None: ["whisper-large-v3"])
+    monkeypatch.setattr(presets, "missing_models", lambda cfg, comments=False, **kw: ["whisper-large-v3"])
     r = c.post("/api/transcribe", json={"sources": [str(tmp / "talk.wav")]})
     assert r.status_code == 422 and "whisper-large-v3" in r.json()["detail"]
-    monkeypatch.setattr(presets, "missing_models", lambda cfg, comments=False, choice=None: [])
+    monkeypatch.setattr(presets, "missing_models", lambda cfg, comments=False, **kw: [])
     assert c.post("/api/transcribe", json={"sources": ["talk.wav"]}).status_code == 422  # not a whole path
     r = c.post("/api/transcribe", json={"sources": [str(tmp / "talk.wav")]})
     assert r.status_code == 200 and '"compute_type": "float16"' in r.json()["recipe"]
@@ -214,3 +214,22 @@ def test_only_requests_addressed_to_this_machine(client):
     assert c.post("/api/setup/token", json=body, headers={"Origin": "http://127.0.0.1:8188"}).status_code == 403
     assert c.post("/api/setup/token", json=body, headers={"Origin": "null"}).status_code == 403
     assert c.post("/api/setup/check-token", json={}, headers={"Origin": "http://127.0.0.1:8765"}).status_code == 422
+
+
+def test_the_ready_made_recipe_lets_the_user_choose_the_transcriber(tmp_path):
+    media = tmp_path / "a.mp3"
+    media.write_bytes(b"\0")
+    blackwell = bootstrap.fit(machine(nvidia("RTX 5070 Ti", 16, "12.0", "13.0")))
+    ada = bootstrap.fit(machine(nvidia("RTX 4090", 24, "8.9", "12.8")))
+    assert blackwell["nemotron"] == "nemotron-3.5-transcribe-nvfp4" and ada["nemotron"] == "nemotron-3.5-transcribe-fp8"
+    r = recipe_from_text(presets.transcript_recipe([str(media)], choice=blackwell, transcriber="nemotron"), tmp_path)
+    assert [s.name for s in r.stages] == ["download", "audio", "nemotron_transcribe", "turns"]
+    assert r.stages[2].given["model"].endswith("-NVFP4")
+    r = recipe_from_text(presets.transcript_recipe([str(media)], choice=ada, whisper_model="large-v3-turbo"), tmp_path)
+    assert next(s for s in r.stages if s.name == "transcribe").given["model"] == "large-v3-turbo"
+    with pytest.raises(ValueError):
+        presets.transcript_recipe([str(media)], choice=ada, transcriber="parakeet")
+    cfg = MachineConfig(workspace=tmp_path / "ws", tools={"nemotron_vllm": str(tmp_path / "nope")})
+    assert "install/nemotron-vllm.sh" in presets.transcriber_problem(cfg, "nemotron", ada)
+    assert presets.transcriber_problem(cfg, "whisper", ada) is None
+    assert presets.missing_models(cfg, choice=ada, transcriber="nemotron") in ([], ["nemotron-3.5-transcribe-fp8"])
