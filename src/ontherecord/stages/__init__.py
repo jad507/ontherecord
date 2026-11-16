@@ -20,6 +20,7 @@ _BUILTIN = {
     "align": "align:Align",
     "word_choices": "word_choices:WordChoices",
     "turns": "turns:Turns",
+    "excerpts": "excerpts:Excerpts",
     "code": "code:Code",
     "stress_set": "stress_set:StressSet",
     "whistress": "whistress:WhiStressMarks",

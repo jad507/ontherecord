@@ -1,9 +1,31 @@
-# Status and handoff (October 24, 2026)
+# Status and handoff (November 16, 2026)
 
 Where On the Record stands, what was decided and why, what is waiting on Jeff, and what to do next, for whoever
 picks it up next (a person or an agent). Written Oct 22 at the end of the first build session and brought up to
 date at the end of Oct 23's and Oct 24's. The Research-a-thon write-up notes, with every number and its source, are in
 [researchathon-notes.md](researchathon-notes.md). The write-up (three pages) is due Dec 1, 11:59 pm ET.
+
+## November 16: direction for the next few days (Jeff)
+
+Steps 0-2 of the audit are done and merged into `main` (not pushed); the rerun's numbers are in the notes, with
+what they cannot show (no gold coding yet). Jeff, Nov 16: **generalize the software for any social scientist; stop
+chasing specific outputs.** The path to make reliable: video, to audio, to text, to coded data under a
+researcher's own codes. His study's shape is two passes: find the public comments in the whole transcript (for hand
+and gold coding), then label each comment with one or more categories. Built today as `excerpts` (audit B2a),
+with `recipes/eleven-left-themes.yaml` (not yet run) and a neutral `recipes/example-interviews.yaml`.
+
+Also from him: the user must choose the transcriber (Whisper models, Nemotron 3.5 Transcribe), and Whisper and
+Nemotron should be compared, but generality comes first. Project examples (council recipes, codebooks, prompts)
+stay in the repo as small, editable examples, beside a neutral one. The Oct 22 runs are kept, not deleted.
+
+Next, in this order:
+1. Run `recipes/eleven-left-themes.yaml` through the queue (about 15 min on the GPU; ask first) and look at the
+   themes in the Library: B2a's last line.
+2. Transcriber choice where a user meets it: `ontherecord transcribe`, `presets.py` and the page (recipes already
+   allow it). Offer Nemotron only after one real meeting has gone through it here (`eleven-left-nemotron.yaml`
+   has never run on v2; GPU time and a first-start compile, so ask). The preset must refuse, naming what is
+   missing, when its environment or model is absent.
+3. Then the audit's "After" list (B3 and B4 first: people's codes in the same format, and agreement).
 
 ## November 14: architecture audit
 

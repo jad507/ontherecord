@@ -515,7 +515,7 @@ def from_run(store_root: Path, run_id: str, kind: str, sample: int | None = 100,
         if info:  # the recording's own title (yt-dlp's, or the file's name), as the Library shows
             title = json.loads(info[2].read_text(encoding="utf-8")).get("title") or title
         if kind == "check":
-            src = latest_with(store_root, rec, item, "segments", lambda p: segments_summary(p)["words"])
+            src = latest_with(store_root, rec, item, "segments", lambda p: segments_summary(p)["words"] and segments_summary(p)["unit"] != "clip")
             if not src:
                 continue
             audio = audio_for(src[0])

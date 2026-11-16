@@ -1,0 +1,19 @@
+name: example-interviews
+description: >-
+  An example two-pass study to copy: recorded interviews in, coded stories out. Put your recordings (audio or
+  video) in a folder named interviews beside this file, or change files: below. Speakers, transcript and speaker
+  turns; then pass one finds the personal stories, the excerpts step cuts them out, and pass two labels each story
+  with any of four themes. Swap in your own codebooks (see src/ontherecord/codebooks/) and keep the rest.
+source:
+  files: [interviews/*]
+stages:
+  - download: {}               # for files, this copies and fingerprints them
+  - audio: {}
+  - diarize: {}
+  - transcribe: {}             # language: empty, so Whisper detects it; or set e.g. language: es
+  - align: {}
+  - turns: {}
+  - code: {codebook: example-stories.yaml, mode: find, context: whole}
+  - excerpts: {codes: personal_story}
+  - code: {codebook: example-story-themes.yaml, mode: classify, context: unit}
+    as: themes

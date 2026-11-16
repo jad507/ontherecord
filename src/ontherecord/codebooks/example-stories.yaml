@@ -1,0 +1,20 @@
+# An example to copy and edit, not a study's codebook. Pass one of a two-pass interview study: find the personal
+# stories in each interview. See recipes/example-interviews.yaml; example-story-themes.yaml is pass two.
+name: example-stories
+question: Is this stretch a personal story told by the interviewee?
+multiple: false
+codes:
+  - id: personal_story
+    name: Personal story
+    definition: >-
+      The interviewee recounts something that happened to them or that they saw: a particular event, with a time,
+      a place or people in it, told as a sequence. One story runs from its start to its end, across however many
+      turns, including the interviewer's short prompts inside it.
+    include:
+      - "\"When I first moved here, ...\" followed by what happened"
+      - a remembered conversation, incident or turning point
+    exclude:
+      - general opinions or descriptions with no particular event ("people here are friendly")
+      - the interviewer's questions on their own
+attributes:
+  - {id: summary, help: one sentence on what happens in the story}

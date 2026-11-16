@@ -1,0 +1,19 @@
+name: eleven-left-themes
+description: >-
+  A two-pass study on the 11 meetings, left channel. Pass one finds the public comments in each meeting's speaker
+  turns (hands_on_dl's prompt, word for word). The excerpts step cuts those comments out, and pass two labels each one
+  with the human analysts' four data center themes (several allowed, or none), read through their analytical
+  stance. Everything up to pass one is the same as eleven-left, so it is reused.
+source:
+  url_file: eleven-meetings.txt
+stages:
+  - download: {}
+  - audio: {channel: left}
+  - diarize: {}
+  - transcribe: {language: en}
+  - align: {}
+  - turns: {max_gap_s: 30, max_turn_s: null}   # as the study cut its speech blocks
+  - code: {codebook: public-comment.yaml, instructions: extract_public_comments_v1.txt, mode: find, context: whole}
+  - excerpts: {codes: public_comment}
+  - code: {codebook: data-center-themes.yaml, lens: data-center-themes-lens.txt, mode: classify, context: unit}
+    as: themes

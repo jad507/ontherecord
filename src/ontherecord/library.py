@@ -5,7 +5,7 @@ name: a run record lists each step's artifact types (`makes`) and wiring (`from`
 found by type (audit A2):
 
 - the transcript: the run's `segments` with text, preferring ones with speakers, then segment-sized units (Whisper's
-  lines over turns), then the latest;
+  lines over turns), then the latest; never `clip` units (excerpts), which cover only part of a recording;
 - the audio: the `audio` that transcript's inputs trace back to, so the player plays what the transcriber heard;
 - the media and info: the latest `media` and `info`;
 - the codes: every `annotations` artifact, by step.
@@ -95,7 +95,7 @@ def best_transcript(store_root: Path, rec: dict, item: str) -> tuple[str, str, P
             continue
         s = segments_summary(p)
         r = (s["text"], s["speakers"], s["unit"] == "segment", n)
-        if s["text"] and (rank is None or r > rank):
+        if s["text"] and s["unit"] != "clip" and (rank is None or r > rank):   # clips cover part of a recording
             best, rank = (step, art, p), r
     return best
 

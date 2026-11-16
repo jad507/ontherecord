@@ -1,0 +1,18 @@
+# An example to copy and edit, not a study's codebook. Pass two of recipes/example-interviews.yaml: label each story
+# pass one found with any of these themes, or none.
+name: example-story-themes
+question: Which of these themes does the story take up?
+multiple: true
+codes:
+  - id: work
+    name: Work and money
+    definition: Jobs, income, hiring and losing work, costs of living.
+  - id: family
+    name: Family and care
+    definition: Parents, children, partners, caring for someone or being cared for.
+  - id: place
+    name: Place and belonging
+    definition: The neighborhood or town, moving, feeling at home or out of place.
+  - id: institutions
+    name: Institutions
+    definition: Schools, hospitals, government offices, police, courts; being helped or blocked by them.

@@ -141,6 +141,12 @@ segments, by a language model that answers by unit id. `context` (unit, window, 
 before the codebook) are settings, so two runs that differ only there are comparable. `turns` merges a speaker's
 consecutive segments (`max_gap_s`, `max_turn_s`).
 
+Two passes: a first `code` step finds stretches (`mode: find`), `excerpts` turns each find into a unit of its own
+(`unit: clip`, id = the annotation's id, `from` = the units it was cut from), and a second `code` step (`as:` a
+name) codes only those, usually `mode: classify, context: unit` with a `multiple: true` codebook. Readers that want
+a recording's transcript skip `clip` units. Examples: `recipes/example-interviews.yaml` (neutral, codebooks written
+from scratch) and `recipes/eleven-left-themes.yaml` (public comments, then four data center themes).
+
 Machine-dependent settings (`device: auto`, a compute type the card lacks) are settled before the key is made
 (`Stage.resolve`), so a key says what will run; a recipe that cannot run here is refused at plan time.
 

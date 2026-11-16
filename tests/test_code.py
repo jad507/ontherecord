@@ -59,6 +59,9 @@ class FakeCoder(BaseHTTPRequestHandler):
             out = {"found": [{"units": [i], "code": "greeting", "tone": "warm", "summary": "hi"}
                              for i in marked if "hello" in text[i]] + [{"units": ["zz99"], "code": "greeting",
                                                                         "tone": "flat", "summary": ""}]}
+        elif props["coded"]["items"]["properties"]["code"]["type"] == "array":   # a codebook with multiple: true
+            out = {"coded": [{"unit": i, "code": ["greeting", "other_talk"] if "again" in text[i] else ["greeting"],
+                              "tone": "flat", "summary": ""} for i in marked]}
         else:
             out = {"coded": [{"unit": i, "code": "greeting" if "hello" in text[i] else "none", "tone": "flat",
                               "summary": ""} for i in marked]}
@@ -195,3 +198,77 @@ def test_an_annotation_names_a_local_model_by_its_file_not_its_path():
     from ontherecord.stages.code import model_id
     assert model_id("/home/someone/models/gemma.gguf") == "gemma.gguf"
     assert model_id("google/gemma-4") == "google/gemma-4" and model_id("fake") == "fake"
+
+
+def two_pass(ws, server, codes="greeting"):
+    (ws / "multi.yaml").write_text(TOY_BOOK.replace("name: toy", "name: multi\nmultiple: true"), encoding="utf-8")
+    end = json.dumps(server)
+    text = ("name: t\nsource:\n  files: [src.txt]\nstages:\n  - download: {}\n  - toy_segments: {}\n  - turns: {}\n"
+            f"  - code: {{codebook: toy.yaml, max_tokens: 2000, endpoint: {end}}}\n"
+            f"  - excerpts: {{codes: '{codes}'}}\n"
+            f"  - code: {{codebook: multi.yaml, mode: classify, context: unit, max_tokens: 2000, endpoint: {end}}}\n"
+            "    as: second\n")
+    r = Runner(recipe_from_text(text, ws), MachineConfig(workspace=ws / "workspace"), log=lambda *_: None)
+    return r, r.execute()
+
+
+def test_a_second_pass_codes_only_what_the_first_found(ws, server):
+    """Find greetings among the turns, cut them out, and classify only those: the two-pass study."""
+    r, rec = two_pass(ws, server)
+    assert {s: c["status"] for s, c in rec["cells"]["src"].items()} == {
+        "download": "ran", "toy_segments": "ran", "turns": "ran", "code": "ran", "excerpts": "ran", "second": "ran"}
+    ex = json.loads(output(ws, rec, "excerpts", "excerpts").read_text())
+    assert ex["unit"] == "clip"
+    assert [(u["id"], u["text"], u["from"], u["speaker"]) for u in ex["units"]] == [
+        ("a0001", "hello there", ["t0000"], "A"), ("a0002", "hello again", ["t0002"], "A")]
+    second_calls = FakeCoder.calls[1:]
+    assert len(second_calls) == 2 and all("fine thanks" not in c["messages"][1]["content"] for c in second_calls)
+    ann = json.loads(output(ws, rec, "second", "annotations").read_text())
+    assert [(a["target"]["units"], a["code"]) for a in ann["annotations"]] == [
+        (["a0001"], "greeting"), (["a0002"], "greeting"), (["a0002"], "other_talk")]   # several codes on one
+    # readers: the transcript is still the whole recording, and the second pass's codes lie over the excerpts
+    from ontherecord import library
+    root = ws / "workspace"
+    run = json.loads((root / "runs" / rec["run_id"] / "run.json").read_text())
+    assert library.best_transcript(root, run, "src")[0] != "excerpts"
+    rows = library.coded(root, run, "src", "second", "annotations")["annotations"]
+    assert [x["text"] for x in rows] == ["hello there", "hello again", "hello again"]
+    again = Runner(recipe_from_text(r.recipe.text, ws), MachineConfig(workspace=ws / "workspace"), log=lambda *_: None)
+    assert {c["status"] for c in again.plan()["src"].values()} == {"cached"}
+
+
+def test_excerpts_of_a_code_nobody_used_leave_the_second_pass_nothing(ws, server):
+    _, rec = two_pass(ws, server, codes="other_talk")
+    cells = rec["cells"]["src"]
+    assert cells["excerpts"]["status"] == "ran" and cells["second"]["status"] == "ran"
+    assert json.loads(output(ws, rec, "excerpts", "excerpts").read_text())["units"] == []
+    assert len(FakeCoder.calls) == 1   # the first pass only
+    receipt = json.loads((ws / "workspace" / cells["excerpts"]["receipt"]).read_text())
+    assert {c["name"]: c["status"] for c in receipt["checks"]}["codes"] == "warn"
+
+
+def test_excerpts_refuse_codes_on_units_they_were_not_given():
+    from ontherecord.stages.base import UserError
+    from ontherecord.stages.excerpts import cut
+    units = [{"id": "s0", "start": 0.0, "end": 1.0, "text": "a", "speaker": "A"},
+             {"id": "s1", "start": 1.0, "end": 2.0, "text": "b", "speaker": "B"}]
+    two = cut(units, [{"id": "a1", "code": "x", "target": {"units": ["s0", "s1"]}}], set())
+    assert "speaker" not in two[0] and two[0]["text"] == "a b"   # two speakers: no single speaker named
+    with pytest.raises(UserError, match="not in the segments"):
+        cut(units, [{"id": "a1", "code": "x", "target": {"units": ["t0009"]}}], set())
+    with pytest.raises(UserError, match="span of time"):
+        cut(units, [{"id": "a1", "code": "x", "target": {"start": 0.0, "end": 1.0}}], set())
+
+
+def test_the_shipped_example_recipe_plans_two_passes(tmp_path):
+    """recipes/example-interviews.yaml: pass two reads the excerpts, and the excerpts read the turns pass one coded."""
+    import shutil
+    shutil.copy(HERE.parent / "recipes" / "example-interviews.yaml", tmp_path / "r.yaml")
+    (tmp_path / "interviews").mkdir()
+    (tmp_path / "interviews" / "one.wav").write_bytes(b"RIFF")
+    from ontherecord.recipe import load_recipe
+    r = Runner(load_recipe(tmp_path / "r.yaml"), MachineConfig(workspace=tmp_path / "ws"), log=lambda *_: None)
+    wiring = {s.name: s.inputs_from for s in r.recipe.stages}
+    assert wiring["excerpts"] == {"units": "turns", "annotations": "code"}
+    assert wiring["themes"] == {"units": "excerpts"}
+    assert set(r.plan()["one"]) >= {"turns", "code", "excerpts", "themes"}

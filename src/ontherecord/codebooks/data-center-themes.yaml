@@ -1,0 +1,54 @@
+# The four themes human analysts found in Lancaster, PA public comments on a proposed AI data center (July to
+# November 2025), from hands_on_dl's downloads/data_center_comment_themes.md (also ported to Concord as
+# downloads/concord/codebook.json). Definitions and sub-themes as written there; the speakers' quotes are left out.
+# Its analytical stance is a lens, not a code: prompts/data-center-themes-lens.txt.
+# The second pass of a two-pass study: give it the public comments a first pass found (the excerpts stage), with
+# mode: classify and context: unit. A comment may carry several themes, or none.
+name: data-center-themes
+question: Which of these themes does this public comment take up?
+multiple: true
+codes:
+  - id: municipal_resources
+    name: Municipally managed resources and utilities
+    definition: >-
+      The data center project framed as a strain on Lancaster's municipally managed resources: electricity and
+      electric infrastructure, water supply, waste management, and the city's budgetary capacity to handle the
+      increased use. A long-term burden on shared municipal utilities, tied to well-being and fiscal
+      responsibility, not only to price.
+    include:
+      - "electricity supply, quality and cost: the grid cannot absorb the load, or residents will pay for expanding it"
+      - "water supply, quality and cost: availability, contamination (PFAS), the volumes used for cooling"
+      - "electronic waste and end-of-life liability: obsolete hardware, a developer leaving a degraded site"
+  - id: municipal_process
+    name: Municipal process
+    definition: >-
+      The project as an example of unmet expectations of locally elected officials: how decisions were made, how
+      knowledge was shared, and what accountability looks like. Includes demands for community-led monitoring,
+      information asymmetry, distrust of officials and moral condemnation of the process (the zoning
+      determination, adequacy of public notice, the community benefits agreement).
+    include:
+      - "demands for community-led oversight and ongoing participation, not a one-time vote"
+      - "information asymmetry and lack of transparency: the community kept in the dark while decisions were made"
+      - "distrust, accusation of bad faith, moral condemnation of officials"
+  - id: health_well_being
+    name: Health and well-being
+    definition: >-
+      Concern about the direct and indirect effects of data center operations on residents' physical health and
+      quality of life: noise, air quality, documented health conditions, and the argument that no financial benefit
+      can offset health harms.
+    include:
+      - "noise pollution, e.g. decibel levels from air-cooled facilities"
+      - "air quality and the loss of outdoor life: parks, concerts, green space"
+      - "direct health consequences cited from other communities or media: respiratory, cardiovascular, sleep"
+      - "rejecting the trade of health for economic benefit"
+  - id: power_inequality
+    name: Power dynamics and inequality
+    definition: >-
+      The uneven distribution of costs and benefits: who bears the risks, who profits, and how existing systems of
+      wealth and power shape outcomes. Includes concern for non-human and vulnerable populations, challenges to
+      the job-creation narrative, and links between AI infrastructure and historical patterns of extraction and
+      neglect.
+    include:
+      - "wildlife, children and future generations"
+      - "challenging the jobs narrative with unmet needs such as housing and infrastructure"
+      - "the community inheriting the costs while the benefits flow elsewhere; fossil fuels and energy costs"
