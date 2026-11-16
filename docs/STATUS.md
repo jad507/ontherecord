@@ -43,13 +43,27 @@ Nov 15 evening, the GPU free overnight (Jeff: "gpu is free overnight if you have
    37 turns (old: 37 blocks). The code stage found 3 public comments (old `extract_comments`: 4; the schema differs).
    `20261115-221522-check-words`: RTTMs and transcripts identical, `word_choices` identical word by word (text,
    times, p, every alternative), 492 doubtful, 282 with choices. Only `diarization_stats` differs (new fields).
-2. **Step 2 queued** behind it, in this order: `20261115-222537-eleven-left`, `-eleven-average`,
-   `-eleven-as-coded`, `-stress-benchmarks`, run by a headless `ontherecord dispatch`. Plan said 3.1 + 3.2 + 3.1 h +
-   56 min summed, but as-coded reuses left's transcripts and average's diarization. Compare each with its baseline:
-   `python3 ~/ontherecord-backups/k5-baseline/k5.py OLD_RUN NEW_RUN` (old run ids in `cells.json`).
-3. After the rerun: the assistant eval (`ontherecord exclusive -- .venv/bin/python evals/assistant_eval.py`); it
-   reads the real Library.
-
+2. **Step 2 ran overnight** (`20261115-222537-*`; code steps redone as `20261116-02*` after code v2, below).
+   K5, by `k5.py`:
+   - Every RTTM is byte-identical (eleven-left, average, as-coded, check-words, jan29): 189 speakers on the left
+     channel, 1 per meeting averaged, the same 11 on as-coded. `same_source` fails on all 11 as-coded meetings.
+   - eleven-average: 0 words, 0 turns, 0 comments, as before. All its checks fail or warn as before.
+   - WhiStress reran (its device is now in the key) and its marks are byte-identical: 218/218 and 202/202, top-1
+     0.982 and 0.941; the five readers were therefore reused, answers identical.
+   - **One mismatch: `X3DupuiqLts` (eleven-left, and as-coded, which reuses it).** 970 segments, 154,205 words in
+     all, where Oct 22 had 979 and 154,212; so 1,323 turns, not 1,325 (as-coded 2,765, not 2,773). The other 10
+     transcripts are identical in text and times. Cause: Whisper (faster-whisper 1.2.1, CTranslate2 4.8.3,
+     float16, beam 10) is not deterministic on this card at one near-tie, about 1,241 to 1,345 s into that
+     meeting: same audio sha, same settings, same packages and driver, unchanged call (diffed against main);
+     a third transcription of the meeting, run directly through `ontherecord exclusive`, gave a third
+     result in the same window (970 segments, times off by 0.02 s). Not a code change: `turns` gives 1,325 from
+     Oct 22's aligned files.
+   - Comments: 121 on eleven-left (the old stage also found 121), 79 on as-coded (old: 98), 3 on jan29 (old: 4).
+     The same counts came out on both code passes (v1 and v2).
+   - **Stopped here for Jeff**: the audit's K5 says the left channel's words "must match exactly"; that premise is
+     false on this machine. Not done until he decides: K6 (delete old runs, prune), the notes, the merge.
+3. Code v2 (`08ab181`): annotations named the model by the path llama-server reports (the home folder); now
+   the file name.
 Checked without a GPU: the old store's 218 transcript, aligned, word and RTTM files pass the new format checks
 when reshaped as the new stages write them; `turns` reproduces 1,325 and 2,773 blocks from the old aligned files;
 the page was driven headless against a toy run (Library, Codes tab, previews, Build, Review) with no exceptions.
