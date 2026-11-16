@@ -64,6 +64,12 @@ Nov 15 evening, the GPU free overnight (Jeff: "gpu is free overnight if you have
      false on this machine. Not done until he decides: K6 (delete old runs, prune), the notes, the merge.
 3. Code v2 (`08ab181`): annotations named the model by the path llama-server reports (the home folder); now
    the file name.
+4. The assistant eval is not run. Through `ontherecord exclusive` it scores 2 of 25, because the assistant
+   switches itself off while any job runs, the `exclusive` job included (every reply is the "I'm switched off"
+   note). It has to run outside the queue, with the queue empty, which Jeff's rule reserves for him to allow:
+   `.venv/bin/python evals/assistant_eval.py --model hodl/unsloth/gemma-4-E4B-it-UD-Q8_K_XL.gguf` (CPU, as
+   machine.yaml's assistant), or against a running GUI.
+
 Checked without a GPU: the old store's 218 transcript, aligned, word and RTTM files pass the new format checks
 when reshaped as the new stages write them; `turns` reproduces 1,325 and 2,773 blocks from the old aligned files;
 the page was driven headless against a toy run (Library, Codes tab, previews, Build, Review) with no exceptions.
