@@ -225,7 +225,11 @@ def quant_algo(model: Path) -> str | None:
         d = json.loads((Path(model) / "hf_quant_config.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
-    return (d.get("quantization") or d).get("quant_algo")
+    q = d.get("quantization") or d
+    layers = q.get("quantized_layers") or {}   # NVIDIA's NVFP4 export is MIXED_PRECISION: NVFP4 experts, FP8 the rest
+    if q.get("quant_algo") == "MIXED_PRECISION" and any(v.get("quant_algo") == "NVFP4" for v in layers.values()):
+        return "NVFP4"
+    return q.get("quant_algo")
 
 
 def model_dir(settings: dict) -> Path:

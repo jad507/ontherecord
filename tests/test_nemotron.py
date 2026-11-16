@@ -105,7 +105,9 @@ def test_either_checkpoint_resolves_to_its_pinned_revision_and_nvfp4_needs_black
     assert nm.NemotronTranscribe.resolve(s(nm.NVFP4), blackwell)["revision"] == nm.PINNED[nm.NVFP4]
     with pytest.raises(UserError, match="Blackwell"):
         nm.NemotronTranscribe.resolve(s(nm.NVFP4), ada)
-    (tmp_path / "hf_quant_config.json").write_text('{"quantization": {"quant_algo": "NVFP4"}}')
+    (tmp_path / "hf_quant_config.json").write_text(   # as NVIDIA's NVFP4 export writes it
+        '{"quantization": {"quant_algo": "MIXED_PRECISION", "quantized_layers": {"a": {"quant_algo": "FP8"}, '
+        '"b": {"quant_algo": "NVFP4"}}}}')
     assert nm.quant_algo(tmp_path) == "NVFP4" and nm.OFFLOAD["NVFP4"].startswith("4")
     args = nm.server_args(tmp_path, 1234, {"gpu_memory_utilization": 0.85, "max_num_batched_tokens": 4096,
                                            "speculative_tokens": 0, "offload_backend": "auto"}, 6)
