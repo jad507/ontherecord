@@ -38,7 +38,10 @@ Next, in this order:
      command. They live in `~/.cache/flashinfer/0.7.0.post1/120f/cached_ops/`. The stage now sets `MAX_JOBS=1`,
      `CUDA_HOME` and the vLLM environment's folder on PATH (FlashInfer needs its ninja).
    - Jan 29 (`20261116-143515-jan29-left-nemotron`): 10-minute start, then 256 s for 31 min of audio; 4,162 words,
-     8 speakers, 161 turns, 3 public comments (Whisper: 3,838, 7, 37, 3). The 11 meetings were started at 14:52.
+     8 speakers, 161 turns, 3 public comments (Whisper: 3,838, 7, 37, 3). The 11 meetings (`20261116-145058`)
+     were cancelled at 14:58, 7 minutes into the first (an hour-long piece): free RAM fell to about 2 GiB and
+     Claude Code stopped the watchdog for memory pressure. Not restarted. Before another try: shorter pieces
+     (`max_piece_minutes: 30`, in the key) or less else running; ask Jeff.
    - The dispatcher was started with `systemd-run --user --unit=ontherecord-dispatch --collect ... dispatch`, so an
      OOM kill of a terminal cannot take a job with it; jobs ran under a memory watchdog (cancel below 2-2.5 GiB).
 2. Transcriber choice where a user meets it: `ontherecord transcribe`, `presets.py` and the page (recipes already
