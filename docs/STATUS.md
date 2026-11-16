@@ -20,12 +20,27 @@ stay in the repo as small, editable examples, beside a neutral one. The Oct 22 r
 
 Next, in this order:
 1. Done: `eleven-left-themes` ran (`20261116-130749`): 122 comments, all labeled with the four themes (B2a).
-   **Nemotron cannot run on shiro.** The FP8 model needs about 30 GiB of free RAM to load with experts offloaded;
-   shiro has 30 GiB in all. The default try was refused by the stage; a hand try at 20 GiB peaked at 25.4 GiB and
-   systemd-oomd killed the terminal it was started from (the session, the dispatcher and the job). Fixed: the
-   stage counts 6 GiB of loading overhead (`984b29a`), so it refuses here. Also learned: a job started from a
-   terminal lives in that terminal's cgroup, so an OOM kill takes it too; start the dispatcher with
-   `systemd-run --user --unit=ontherecord-dispatch --collect ... ontherecord dispatch` to keep it apart.
+   **Nemotron runs on shiro with the NVFP4 checkpoint** (`ontherecord models get nemotron-3.5-transcribe-nvfp4`,
+   21.6 GB, fetched Nov 16 at Jeff's yes). FP8 cannot: it needs about 30 GiB of free RAM to load on a 16 GB card;
+   a hand try at 20 GiB peaked at 25.4 GiB and systemd-oomd killed the terminal it was started from (session,
+   dispatcher and job). What NVFP4 needed, all measured on shiro:
+   - 10 GiB of experts in RAM (4 and 6 run out of GPU memory loading, 8 in warm-up) and
+     `gpu_memory_utilization: 0.92` (at 0.85 no room is left for the KV cache). Loading needs about 10 GiB of RAM
+     beyond the pinned amount, so the stage refuses unless offload + 14 GiB is free; the lowest free RAM seen while
+     transcribing was 2.8 GiB.
+   - FlashInfer's kernels, compiled on the first start with one nvcc per core (about 6-8 GB each). Beside the
+     loaded model even one compile job ran the machine down to 0.7 GiB, so they were built ahead, with no model
+     loaded, through the queue: `fp4_gemm_cutlass_sm120`, `fused_moe_120` and the Mamba `checkpointing_ssu_...`
+     module (scripts like `ontherecord exclusive -- env FLASHINFER_CUDA_ARCH_LIST=12.0f MAX_JOBS=3
+     CUDA_HOME=/usr/local/cuda PATH=~/src/nemo-speech/.venv/bin:/usr/local/cuda/bin:/usr/bin:/bin
+     ~/src/nemo-speech/.venv/bin/python -c "from flashinfer.jit.fused_moe import gen_cutlass_fused_moe_sm120_module
+     as g; g().build_and_load()"`). `exclusive` runs in the dispatcher's environment, so variables go inside the
+     command. They live in `~/.cache/flashinfer/0.7.0.post1/120f/cached_ops/`. The stage now sets `MAX_JOBS=1`,
+     `CUDA_HOME` and the vLLM environment's folder on PATH (FlashInfer needs its ninja).
+   - Jan 29 (`20261116-143515-jan29-left-nemotron`): 10-minute start, then 256 s for 31 min of audio; 4,162 words,
+     8 speakers, 161 turns, 3 public comments (Whisper: 3,838, 7, 37, 3). The 11 meetings were started at 14:52.
+   - The dispatcher was started with `systemd-run --user --unit=ontherecord-dispatch --collect ... dispatch`, so an
+     OOM kill of a terminal cannot take a job with it; jobs ran under a memory watchdog (cancel below 2-2.5 GiB).
 2. Transcriber choice where a user meets it: `ontherecord transcribe`, `presets.py` and the page (recipes already
    allow it). Offer Nemotron only after one real meeting has gone through it here (`eleven-left-nemotron.yaml`
    has never run on v2; GPU time and a first-start compile, so ask). The preset must refuse, naming what is
