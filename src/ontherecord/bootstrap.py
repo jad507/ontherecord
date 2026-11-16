@@ -136,6 +136,17 @@ MODELS = {
         "role": "speech", "needs_gb": 48,
         "about": "NVIDIA Nemotron 3.5 Transcribe 30B-A4B, FP8: transcript, speaker labels and word times in one "
                  "model (vLLM; experts offloaded to RAM on smaller cards)"},
+    # The same model as NVIDIA's ModelOpt NVFP4 export (repo made Oct 12, 2026; this revision Oct 29). Blackwell cards
+    # only (the card lists the RTX 5090, B200, GB10...). 21.6 GB, so a 16 GB card keeps far fewer experts in RAM than
+    # with FP8. The card: error rate 3.6% higher, relative, than the BF16 model's, averaged over its benchmarks.
+    "nemotron-3.5-transcribe-nvfp4": {
+        "kind": "hf", "repo": "nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B-NVFP4",
+        "rev": "66c6adc4020179567074d0399cda2a4eeb2bb347", "bytes": 21_576_957_938,
+        "patterns": ["*.json", "*.jinja", "*.safetensors", "llm_backbone/config.json", "LICENSE", "licenses/*",
+                     "THIRD_PARTY_NOTICES.md"],
+        "role": "speech", "needs_gb": 16,
+        "about": "NVIDIA Nemotron 3.5 Transcribe 30B-A4B, NVFP4 (Blackwell cards only): transcript, speaker labels "
+                 "and word times in one model (vLLM; some experts offloaded to RAM on 16 GB cards)"},
 }
 
 

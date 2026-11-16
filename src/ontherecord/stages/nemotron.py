@@ -22,10 +22,16 @@ import urllib.request
 from pathlib import Path
 
 from ..artifacts import segments, write_json
-from .base import Check, Context, Item, Result, Setting, Stage
+from .base import Check, Context, Item, Result, Setting, Stage, UserError
 
 REPO = "nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B-FP8"
-REVISION = "2b6209f89bec0da576d69183bfdabb3b6c05ade2"
+NVFP4 = "nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B-NVFP4"
+# The revisions bootstrap.py pins (ontherecord models get nemotron-3.5-transcribe-fp8 / -nvfp4)
+PINNED = {REPO: "2b6209f89bec0da576d69183bfdabb3b6c05ade2", NVFP4: "66c6adc4020179567074d0399cda2a4eeb2bb347"}
+REVISION = PINNED[REPO]
+# GiB of experts to try holding in RAM on a 16 GB card, by the checkpoint's quantization (hf_quant_config.json):
+# FP8 is 34.7 GB, of which the experts are 30.65; NVFP4 is 21.6 GB.
+OFFLOAD = {"FP8": "22; 24; 26", "NVFP4": "4; 6; 8; 10; 12"}
 # The card's prompt for "who said what, and when" (its Prompt Guide), sent with word timestamps on
 SPEAKER_PROMPT = ("Transcribe this audio with punctuation and capitalization. Include all spoken words and verbal "
                   "fillers. Write numbers in their standard written form. Put speaker tags <spk:0> <spk:1> <spk:2> "
@@ -53,7 +59,7 @@ class NemotronTranscribe(Stage):
     next."""
     name = "nemotron_transcribe"
     label = "Transcribe and diarize (Nemotron 3.5)"
-    version = "2"
+    version = "3"
     group = "audio"
     gpu = True
     needs = {"audio": "audio"}
@@ -61,9 +67,11 @@ class NemotronTranscribe(Stage):
     headline = ("words", "words")
     packages = ("soundfile", "numpy")
     settings = {
-        "model": Setting(REPO, "Hugging Face repo in the local cache (ontherecord models get "
-                         "nemotron-3.5-transcribe-fp8), or a local directory holding the checkpoint."),
-        "revision": Setting(REVISION, "The cached revision of that repo to serve."),
+        "model": Setting(REPO, "Hugging Face repo in the local cache, or a local directory holding the checkpoint. "
+                         f"{REPO} (ontherecord models get nemotron-3.5-transcribe-fp8) runs on any recent NVIDIA card "
+                         f"but is 34.7 GB; {NVFP4} (nemotron-3.5-transcribe-nvfp4) is 21.6 GB, Blackwell cards only "
+                         "(RTX 50 series and newer)."),
+        "revision": Setting("", "The cached revision of that repo to serve; empty: the one this version pins."),
         "endpoint": Setting("managed", "'managed' starts vLLM from the machine config's tools.nemotron_vllm and "
                             "stops it afterwards; or the /v1 URL of a server already running this model.",
                             in_key=False),
@@ -77,10 +85,10 @@ class NemotronTranscribe(Stage):
                                       "experts in RAM, every token checked per step saves a pass over them."),
         "max_num_batched_tokens": Setting(4096, "Prefill chunk size (the card's value). Smaller uses less GPU "
                                           "memory per step."),
-        "offload": Setting("22; 24; 26", "GiB of expert weights held in RAM (vLLM --cpu-offload-gb with "
-                           "--cpu-offload-params experts), tried in turn until the server loads. The experts are "
-                           "30.65 GB of the 34.7; 0 keeps everything on the GPU (48 GB cards and up).",
-                           in_key=False),
+        "offload": Setting("auto", "GiB of expert weights held in RAM (vLLM --cpu-offload-gb with "
+                           "--cpu-offload-params experts), tried in turn until the server loads, e.g. '22; 24; 26'. "
+                           "auto: 22-26 for FP8, 4-12 for NVFP4; 0 keeps everything on the GPU (48 GB cards and up "
+                           "for FP8).", in_key=False),
         "offload_backend": Setting("auto", "vLLM's --offload-backend: uva reads the weights from RAM in place, "
                                    "prefetch copies layers ahead.", choices=["auto", "uva", "prefetch"],
                                    in_key=False),
@@ -89,6 +97,21 @@ class NemotronTranscribe(Stage):
         "loop_guardrail": Setting(True, "Collapse a run of 1 to 64 words repeated 20 or more times to one copy, "
                                   "as the card's reported results do (they apply it to the text)."),
     }
+
+    @classmethod
+    def resolve(cls, settings: dict, machine: dict) -> dict:
+        if not settings["revision"] and not Path(settings["model"]).expanduser().is_dir():
+            settings["revision"] = PINNED.get(settings["model"], "")
+            if not settings["revision"]:
+                raise UserError(f"nemotron_transcribe: no pinned revision for {settings['model']}.",
+                                "Give revision: (a commit of that repo), or a local directory as model.")
+        if settings["model"] == NVFP4:
+            ccs = [float(c["compute_cap"]) for c in machine.get("cuda") or [] if c.get("compute_cap")]
+            if not any(cc >= 10 for cc in ccs):
+                raise UserError("nemotron_transcribe: the NVFP4 checkpoint needs a Blackwell card (compute capability "
+                                f"10 or more); this machine has {', '.join(map(str, ccs)) or 'none'}.",
+                                f"Use model: {REPO}.")
+        return settings
 
     def setup(self, settings: dict, ctx: Context):
         state = {"server": None, "tools": {"model": settings["model"], "model_revision": settings["revision"]}}
@@ -196,6 +219,15 @@ class NemotronTranscribe(Stage):
 
 
 # ---------------------------------------------------------------------------------------------- the server
+def quant_algo(model: Path) -> str | None:
+    """FP8 or NVFP4, as the checkpoint's hf_quant_config.json says (None if it has none)."""
+    try:
+        d = json.loads((Path(model) / "hf_quant_config.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return (d.get("quantization") or d).get("quant_algo")
+
+
 def model_dir(settings: dict) -> Path:
     p = Path(settings["model"]).expanduser()
     if p.is_dir():
@@ -219,9 +251,10 @@ def available_ram_gib() -> float | None:
 
 
 def server_args(model: Path, port: int, s: dict, offload_gib: float) -> list[str]:
-    """`vllm serve` as the model card runs it, for one request at a time, plus expert offloading."""
+    """`vllm serve` as the model card runs it, for one request at a time, plus expert offloading. The KV cache is
+    FP8 for both checkpoints: the FP8 export declares it (so auto chose it), and the NVFP4 card says to set it."""
     args = ["serve", str(model), "--served-model-name", REPO, "--host", "127.0.0.1", "--port", str(port),
-            "--trust-remote-code", "--dtype", "bfloat16", "--kv-cache-dtype", "auto",
+            "--trust-remote-code", "--dtype", "bfloat16", "--kv-cache-dtype", "fp8",
             "--gpu-memory-utilization", str(s["gpu_memory_utilization"]), "--max-model-len", "65536",
             "--max-num-batched-tokens", str(s["max_num_batched_tokens"]), "--max-num-seqs", "1",
             "--enable-chunked-prefill", "--no-enable-prefix-caching",
@@ -253,7 +286,10 @@ class VllmServer:
         if Path("/usr/local/cuda/bin/nvcc").is_file():  # FlashInfer compiles its kernels on first use
             env["PATH"] = "/usr/local/cuda/bin" + os.pathsep + env.get("PATH", "")
         tried = []
-        for gib in [float(x) for x in str(settings["offload"]).split(";") if x.strip()]:
+        amounts = settings["offload"]
+        if amounts == "auto":
+            amounts = OFFLOAD.get(quant_algo(model), OFFLOAD["FP8"])
+        for gib in [float(x) for x in str(amounts).split(";") if x.strip()]:
             free = available_ram_gib()
             if gib and free is not None and gib + LOAD_OVERHEAD_GIB + RAM_HEADROOM_GIB > free:
                 log(f"  not trying {gib:g} GiB of experts in RAM: {free:.1f} GiB is free")

@@ -94,3 +94,19 @@ def test_run_against_a_server_answer(tmp_path, monkeypatch):
     assert json.loads((out / "transcript.json").read_text())["segments"][0]["text"] == "Good evening, everyone."
     assert {c.name: c.status for c in res.checks}["answers"] == "ok"
     assert res.metrics["input_tokens"] == 60 and res.metrics["speaker_count"] == 2
+
+
+def test_either_checkpoint_resolves_to_its_pinned_revision_and_nvfp4_needs_blackwell(tmp_path):
+    from ontherecord.stages.base import UserError
+    s = lambda m: {"model": m, "revision": ""}  # noqa: E731
+    blackwell = {"cuda": [{"name": "RTX 5070 Ti", "compute_cap": "12.0"}]}
+    ada = {"cuda": [{"name": "RTX 4090", "compute_cap": "8.9"}]}
+    assert nm.NemotronTranscribe.resolve(s(nm.REPO), ada)["revision"] == nm.PINNED[nm.REPO]
+    assert nm.NemotronTranscribe.resolve(s(nm.NVFP4), blackwell)["revision"] == nm.PINNED[nm.NVFP4]
+    with pytest.raises(UserError, match="Blackwell"):
+        nm.NemotronTranscribe.resolve(s(nm.NVFP4), ada)
+    (tmp_path / "hf_quant_config.json").write_text('{"quantization": {"quant_algo": "NVFP4"}}')
+    assert nm.quant_algo(tmp_path) == "NVFP4" and nm.OFFLOAD["NVFP4"].startswith("4")
+    args = nm.server_args(tmp_path, 1234, {"gpu_memory_utilization": 0.85, "max_num_batched_tokens": 4096,
+                                           "speculative_tokens": 0, "offload_backend": "auto"}, 6)
+    assert args[args.index("--kv-cache-dtype") + 1] == "fp8" and args[args.index("--cpu-offload-gb") + 1] == "6"
