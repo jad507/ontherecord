@@ -51,6 +51,9 @@ SERVER_ENV = {
     "VLLM_MAX_AUDIO_CLIP_FILESIZE_MB": "180",
     "VLLM_USE_V2_MODEL_RUNNER": "0",                               # word timestamps need the V1 model runner
     "VLLM_DISABLED_KERNELS": "FlashInferFP8ScaledMMLinearKernel",  # the CUTLASS FP8 kernels the card validated
+    # FlashInfer compiles missing kernels with one nvcc per core by default; a CUTLASS FP4 kernel took about 6 GB
+    # per compile job on shiro, beside the model's RAM. One job at a time: a slower first start, not an OOM.
+    "MAX_JOBS": "1",
 }  # the server also inherits the stage's environment: config.LOCAL_ONLY keeps vLLM and FlashInfer offline
 TAG = re.compile(r"<spk:\d+>")
 

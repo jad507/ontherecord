@@ -32,7 +32,7 @@ EXPECTED = {
     "audio": ("1", "11298036ad1d6a8a103ea03b6470a9542ad6c47c0f57082474798d7b30b99a7a"),  # headline declared for Compare; no output changes
     "diarize": ("2", "62be5302d1ef4a1c71a592e9656da406ef93cc9ead0932587c720d00e79b7a88"),  # formats branch: writes the shared formats (version raised)
     "transcribe": ("2", "7bf0b0cbdc86fad66514662f5fe82dfa0c6f24236ddd1874eb25e7bc2f62bdd2"),  # formats branch (version raised); later artifacts.py's RTTM check, no output change
-    "nemotron_transcribe": ("3", "68aa453976bb3fb60fa61e6b122768380456db9a190f145c9b2e52e3905003b6"),  # v3 had produced no output yet: server PATH and CUDA_HOME, a 10 GiB loading margin, NVFP4 offload amounts
+    "nemotron_transcribe": ("3", "c78c5056110fcf2f043e3ed3110de13d07cf0dcd9e6e2efa63de75f082a28dc9"),  # v3 had produced no output yet: FlashInfer compiles one job at a time
     "align": ("2", "f1519174f2ab2aae6b109242e944c83d750dee5cd77ca2dd1c74c4eefd72785b"),  # formats branch (version raised); later artifacts.py's RTTM check, no output change
     "stress_set": ("1", "74f57266f21033e0f37e275f911286be8a4a3d1e449284d1e4ede3eb12271961"),  # headline declared for Compare; no output changes
     "whistress": ("1", "c5d434d7084c58f374f8a22169da9df3e746ffab8ef6a7dfc07c945be54c1e91"),  # D3: device settled before the key and in it (the key changes; the code that makes the marks does not)
