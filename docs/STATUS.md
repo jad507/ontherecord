@@ -19,8 +19,13 @@ Nemotron should be compared, but generality comes first. Project examples (counc
 stay in the repo as small, editable examples, beside a neutral one. The Oct 22 runs are kept, not deleted.
 
 Next, in this order:
-1. Run `recipes/eleven-left-themes.yaml` through the queue (about 15 min on the GPU; ask first) and look at the
-   themes in the Library: B2a's last line.
+1. Done: `eleven-left-themes` ran (`20261116-130749`): 122 comments, all labeled with the four themes (B2a).
+   **Nemotron cannot run on shiro.** The FP8 model needs about 30 GiB of free RAM to load with experts offloaded;
+   shiro has 30 GiB in all. The default try was refused by the stage; a hand try at 20 GiB peaked at 25.4 GiB and
+   systemd-oomd killed the terminal it was started from (the session, the dispatcher and the job). Fixed: the
+   stage counts 6 GiB of loading overhead (`984b29a`), so it refuses here. Also learned: a job started from a
+   terminal lives in that terminal's cgroup, so an OOM kill takes it too; start the dispatcher with
+   `systemd-run --user --unit=ontherecord-dispatch --collect ... ontherecord dispatch` to keep it apart.
 2. Transcriber choice where a user meets it: `ontherecord transcribe`, `presets.py` and the page (recipes already
    allow it). Offer Nemotron only after one real meeting has gone through it here (`eleven-left-nemotron.yaml`
    has never run on v2; GPU time and a first-start compile, so ask). The preset must refuse, naming what is
