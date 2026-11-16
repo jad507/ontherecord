@@ -31,15 +31,29 @@ and `20261116-025556-eleven-as-coded`, the `code` stage v2). The Oct 22 runs (`2
 - **Averaged (the trap):** pyannote finds 1 speaker in each meeting, and 176 minutes of speech in all. Whisper
   hears 0 words, so there are 0 blocks and 0 public comments. hands_on_dl's May 15 diarization also has 1 speaker
   in every meeting, with 210 minutes of speech.
-- **As coded (pyannote on the average, Whisper on the left):** what the paper's Oct 17-18 runs read. On the Record
-  makes 2,765 speech turns and 79 public comments, against the paper's files' 2,703 and 102. (Oct 22, with a
-  stage that used the paper's own extraction schema: 2,773 blocks and 98 comments.) The `same_source`
+- **As coded (pyannote on the average, Whisper on the left):** what hands_on_dl's Oct 17-18 coding runs read: the
+  words are right (left channel) but the speaker labels come from the canceled audio, so a "turn" often spans
+  several people. On the Record makes 2,765 speech turns, against hands_on_dl's files' 2,703. The `same_source`
   check fails on all 11 meetings, so the error would have been flagged the first time it ran.
 - **Left channel (as intended):** 189 speakers, the same as hands_on_dl's Oct 19 re-diarization in every meeting.
-  896 minutes of speech (vs 901), 154,205 words (vs 154,100), 1,323 turns (vs 1,324), 121 comments (vs 117).
-- Fixing the input changes the analysis: from 2,765 speech turns to 1,323, and from 79 to 121 comments with the
-  generic `code` stage and the public-comment codebook. With the paper's own schema (Oct 22): from 98 to 121
-  (+23%). The comment counts depend on the schema the model is held to; the turn counts do not.
+  896 minutes of speech (vs 901), 154,205 words (vs 154,100), 1,323 turns (vs 1,324).
+- Public comments, as listed by the 26B model from each meeting's turns. Rows are the input; columns are who ran
+  that language-model pass. All three use the same prompt text (`extract_public_comments_v1.txt`, from
+  hands_on_dl's `extract_public_comments.py`); they differ in the reply format the model is held to and in how
+  the turns are packaged around the prompt.
+
+  | Input | hands_on_dl's scripts | On the Record, Oct 22 (hands_on_dl's reply format, copied) | On the Record, Nov 16 (the general `code` stage) |
+  |---|---|---|---|
+  | As coded (right words, wrong speakers) | 102 | 98 | 79 |
+  | Left (right words, right speakers) | 117 | 121 | 121 |
+
+  Matched by time span, the Nov 16 and Oct 22 left-channel lists share about 111-116 comments; the as-coded lists
+  share only 59-70. With wrong speaker turns the model's task is ambiguous, and small packaging changes move it.
+- **What these numbers do not show:** which list is right. No person has yet marked, on these transcripts, where
+  the real speaker turns are or which turns are public comments, so the counts measure agreement between
+  versions, not accuracy. The defensible claim: the input error was silent, it changed the speaker turns a lot
+  (about 2,770 to 1,323), and comment counts built on those turns moved by 20-50%. Which is closer to the truth
+  needs gold coding (the review set `gold-sample-public-comment-20261023`, 180 items, not yet started).
 - Whisper is not bit-reproducible on shiro's card. The rerun matched Oct 22 in every RTTM and in 10 of 11
   transcripts; in one meeting (`X3DupuiqLts`) float16 beam search broke a near-tie differently around 21 minutes in,
   giving 970 segments instead of 979 (Oct 22: 154,212 words, 1,325 blocks). A third run of the same audio, settings
