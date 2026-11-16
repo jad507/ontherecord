@@ -35,19 +35,18 @@ language default and the recipes `51d2637`; D5 `422c647`. Each audit item is mar
 **The checkout is on `formats`**: a GUI started from it runs branch code, which does not read old runs (untyped
 records are skipped), so the Library looks empty until the rerun. Reviews and their answers are unaffected.
 
-What is left before step 2's rerun (all need the GPU, which was busy with another program on Nov 14 at 82%, with
-12 GB of RAM free, so none of it was started):
+Nov 15 evening, the GPU free overnight (Jeff: "gpu is free overnight if you have work to do on it"):
 
-1. The rehearsal, a small K5: `recipes/jan29-left-comments.yaml` (B2's last line: the code stage with the 26B model,
-   its codes in the Library) and `recipes/check-words.yaml` (`word_choices` was rewritten and has not run yet).
-   Expected from the old runs (in the baseline file below): Jan 29 left, 3,838 words, 7 speakers, 37 turns with
-   `max_gap_s: 30, max_turn_s: null`, and about 4 comments (the code stage's schema differs, so not exactly).
-   Check `ontherecord jobs` and `nvidia-smi` first; the queue needs `ontherecord dispatch` or the GUI.
-2. Tell Jeff, then step 2 (audit "Order of work"). `ontherecord plan` on the five recipes shows `download` and
-   `audio` cached for every item (checked Nov 14). WhiStress now reruns too (its device is in the key), and its
-   five readers are reused only if its marks come out byte-identical, so K5's 218/202 is a real test. The baseline
-   (per item: metrics, checks, output hashes of the old runs, the jan29 and water-mains runs too) is
-   `~/ontherecord-backups/k5-baseline/cells.json`, with the three review scores beside it.
+1. **Rehearsal passed** (a small K5, compared by `k5.py OLD NEW`, kept at
+   `~/ontherecord-backups/k5-baseline/k5.py`). `20261115-220828-jan29-left-comments`: RTTMs byte-identical,
+   transcript text and times identical (261 segments, 3,838 words), every segment's speaker as before, 7 speakers,
+   37 turns (old: 37 blocks). The code stage found 3 public comments (old `extract_comments`: 4; the schema differs).
+   `20261115-221522-check-words`: RTTMs and transcripts identical, `word_choices` identical word by word (text,
+   times, p, every alternative), 492 doubtful, 282 with choices. Only `diarization_stats` differs (new fields).
+2. **Step 2 queued** behind it, in this order: `20261115-222537-eleven-left`, `-eleven-average`,
+   `-eleven-as-coded`, `-stress-benchmarks`, run by a headless `ontherecord dispatch`. Plan said 3.1 + 3.2 + 3.1 h +
+   56 min summed, but as-coded reuses left's transcripts and average's diarization. Compare each with its baseline:
+   `python3 ~/ontherecord-backups/k5-baseline/k5.py OLD_RUN NEW_RUN` (old run ids in `cells.json`).
 3. After the rerun: the assistant eval (`ontherecord exclusive -- .venv/bin/python evals/assistant_eval.py`); it
    reads the real Library.
 
