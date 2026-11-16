@@ -189,3 +189,9 @@ def test_an_endpoint_off_this_machine_is_refused_unless_allowed(ws):
     from ontherecord.llm import leaves_machine_check, remote_host
     assert remote_host("http://127.0.0.1:8081/v1") is None and remote_host("managed") is None
     assert leaves_machine_check("llm.example.org")[0].status == "warn"
+
+
+def test_an_annotation_names_a_local_model_by_its_file_not_its_path():
+    from ontherecord.stages.code import model_id
+    assert model_id("/home/someone/models/gemma.gguf") == "gemma.gguf"
+    assert model_id("google/gemma-4") == "google/gemma-4" and model_id("fake") == "fake"

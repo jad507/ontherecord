@@ -28,6 +28,12 @@ from ..llm import close_model, est_tokens, leaves_machine_check, open_model, par
 from ..usage import llm_metrics
 from .base import Check, Context, Item, Result, Setting, Stage, UserError
 
+
+def model_id(served: str) -> str:
+    """The model as an annotation names it: a local file by its name, so the file does not carry this machine's
+    folders (llama-server reports the path it loaded); an id such as org/model as given."""
+    return Path(served).name if Path(served).is_absolute() else served
+
 UNIT_NOUN = {"segment": "Segments", "turn": "Speaker turns", "clip": "Clips", "interval": "Stretches"}
 
 
@@ -128,7 +134,7 @@ class Code(Stage):
     and write annotations. See this module's docstring for context, lens and mode."""
     name = "code"
     label = "Code with a model"
-    version = "1"
+    version = "2"
     gpu = True
     needs = {"units": "segments"}
     makes = {"annotations": "annotations", "annotations_csv": "table", "responses": "other"}
@@ -242,7 +248,7 @@ class Code(Stage):
                 for n, s in enumerate(stretches, 1)]
         write_json(out / "annotations.json", {
             "format": "annotations/1", "codebook": {"name": cb["name"], "sha256": cb["sha256"]},
-            "by": {"kind": "model", "id": state["tools"].get("served_model") or settings["model"]},
+            "by": {"kind": "model", "id": model_id(state["tools"].get("served_model") or settings["model"])},
             "settings": {k: settings[k] for k in ("context", "mode", "window_size")},
             "annotations": anns})
         write_json(out / "responses.json", {"calls": raw})
