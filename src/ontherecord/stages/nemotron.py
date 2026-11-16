@@ -31,7 +31,9 @@ PINNED = {REPO: "2b6209f89bec0da576d69183bfdabb3b6c05ade2", NVFP4: "66c6adc40201
 REVISION = PINNED[REPO]
 # GiB of experts to try holding in RAM on a 16 GB card, by the checkpoint's quantization (hf_quant_config.json):
 # FP8 is 34.7 GB, of which the experts are 30.65; NVFP4 is 21.6 GB.
-OFFLOAD = {"FP8": "22; 24; 26", "NVFP4": "4; 6; 8; 10; 12"}
+# NVFP4 on shiro's 16 GB card: 4 and 6 run out of GPU memory while loading, 8 during warm-up; 10 loads (10.4 GiB
+# on the card).
+OFFLOAD = {"FP8": "22; 24; 26", "NVFP4": "10; 12"}
 # The card's prompt for "who said what, and when" (its Prompt Guide), sent with word timestamps on
 SPEAKER_PROMPT = ("Transcribe this audio with punctuation and capitalization. Include all spoken words and verbal "
                   "fillers. Write numbers in their standard written form. Put speaker tags <spk:0> <spk:1> <spk:2> "
@@ -39,9 +41,10 @@ SPEAKER_PROMPT = ("Transcribe this audio with punctuation and capitalization. In
 MAX_AUDIO_S = 3600          # trained on up to an hour; the server is told to take no more
 CUT_SEARCH_S = 30           # a long recording is cut at the quietest second within this of each even split
 RAM_HEADROOM_GIB = 4        # left free beside the experts held in RAM (they are pinned, so they cannot swap)
-# Loading takes more than the pinned amount. Nov 16 on shiro (30 GiB): 20 GiB of experts in RAM reached 25.4 GiB
-# while loading, and systemd-oomd killed the terminal the job was started from (the job with it).
-LOAD_OVERHEAD_GIB = 6
+# Loading takes more than the pinned amount. Nov 16 on shiro (30 GiB): FP8 with 20 GiB of experts in RAM reached
+# 25.4 GiB while loading, and systemd-oomd killed the terminal the job was started from (the job with it); NVFP4
+# with 10 GiB in RAM took free memory from 25.5 to 5.4 GiB while loading.
+LOAD_OVERHEAD_GIB = 10
 SERVER_ENV = {
     "VLLM_PLUGINS": "nemo_speechlm",
     "VLLM_MAX_AUDIO_DECODE_DURATION_S": str(MAX_AUDIO_S),
@@ -87,7 +90,7 @@ class NemotronTranscribe(Stage):
                                           "memory per step."),
         "offload": Setting("auto", "GiB of expert weights held in RAM (vLLM --cpu-offload-gb with "
                            "--cpu-offload-params experts), tried in turn until the server loads, e.g. '22; 24; 26'. "
-                           "auto: 22-26 for FP8, 4-12 for NVFP4; 0 keeps everything on the GPU (48 GB cards and up "
+                           "auto: 22-26 for FP8, 10-12 for NVFP4 (16 GB cards); 0 keeps everything on the GPU (48 GB cards and up "
                            "for FP8).", in_key=False),
         "offload_backend": Setting("auto", "vLLM's --offload-backend: uva reads the weights from RAM in place, "
                                    "prefetch copies layers ahead.", choices=["auto", "uva", "prefetch"],
@@ -289,6 +292,9 @@ class VllmServer:
         env = {**os.environ, **SERVER_ENV}
         if Path("/usr/local/cuda/bin/nvcc").is_file():  # FlashInfer compiles its kernels on first use
             env["PATH"] = "/usr/local/cuda/bin" + os.pathsep + env.get("PATH", "")
+            env.setdefault("CUDA_HOME", "/usr/local/cuda")
+        # vLLM's own environment holds ninja, which FlashInfer needs to build its kernels; the queue's PATH may not
+        env["PATH"] = str(Path(binary).expanduser().parent) + os.pathsep + env.get("PATH", "")
         tried = []
         amounts = settings["offload"]
         if amounts == "auto":
