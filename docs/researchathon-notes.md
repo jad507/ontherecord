@@ -19,8 +19,10 @@ run whose inputs trace back to different bytes of the same recording.
 
 ## The 11 meetings, run three ways in On the Record
 
-Source: the runs `20261022-092723-eleven-left`, `20261022-095134-eleven-average` and
-`20261022-092509-eleven-as-coded` in shiro's `~/ontherecord-workspace`. They are compared with hands_on_dl's files by the session script
+Source: the runs `20261115-222537-eleven-left`, `-eleven-average` and `-eleven-as-coded` in shiro's
+`~/ontherecord-workspace` (rerun Nov 15-16 on the shared formats; comments from `20261116-024836-eleven-left`
+and `20261116-025556-eleven-as-coded`, the `code` stage v2). The Oct 22 runs (`20261022-092723-eleven-left`,
+`20261022-095134-eleven-average`, `20261022-092509-eleven-as-coded`) are kept beside them. They are compared with hands_on_dl's files by the session script
 `eleven/compare.py`: May 15 diarization at git `6360789~1`, Oct 19 re-diarization at HEAD, extractions
 `gemma26b-2026-10-18` and `gemma26b-2026-10-19-rediarized`.
 
@@ -30,11 +32,18 @@ Source: the runs `20261022-092723-eleven-left`, `20261022-095134-eleven-average`
   hears 0 words, so there are 0 blocks and 0 public comments. hands_on_dl's May 15 diarization also has 1 speaker
   in every meeting, with 210 minutes of speech.
 - **As coded (pyannote on the average, Whisper on the left):** what the paper's Oct 17-18 runs read. On the Record
-  makes 2,773 speech blocks and 98 public comments, against the paper's files' 2,703 and 102. The `same_source`
+  makes 2,765 speech turns and 79 public comments, against the paper's files' 2,703 and 102. (Oct 22, with a
+  stage that used the paper's own extraction schema: 2,773 blocks and 98 comments.) The `same_source`
   check fails on all 11 meetings, so the error would have been flagged the first time it ran.
 - **Left channel (as intended):** 189 speakers, the same as hands_on_dl's Oct 19 re-diarization in every meeting.
-  896 minutes of speech (vs 901), 154,212 words (vs 154,100), 1,325 blocks (vs 1,324), 121 comments (vs 117).
-- Fixing the input changes the analysis: from 98 to 121 comments (+23%), and from 2,773 speech blocks to 1,325.
+  896 minutes of speech (vs 901), 154,205 words (vs 154,100), 1,323 turns (vs 1,324), 121 comments (vs 117).
+- Fixing the input changes the analysis: from 2,765 speech turns to 1,323, and from 79 to 121 comments with the
+  generic `code` stage and the public-comment codebook. With the paper's own schema (Oct 22): from 98 to 121
+  (+23%). The comment counts depend on the schema the model is held to; the turn counts do not.
+- Whisper is not bit-reproducible on shiro's card. The rerun matched Oct 22 in every RTTM and in 10 of 11
+  transcripts; in one meeting (`X3DupuiqLts`) float16 beam search broke a near-tie differently around 21 minutes in,
+  giving 970 segments instead of 979 (Oct 22: 154,212 words, 1,325 blocks). A third run of the same audio, settings
+  and packages gave a third result in the same place. Speaker counts and the as-coded check are unaffected.
 - The small gaps between the left run and the Oct 19 files come from the download: audio-only is 13.5 ms shorter
   than the old merged mp4. pyannote's output was identical; Whisper gave 86 vs 90 segments on one meeting. The old
   transcript has no receipt, so this could only be measured by redoing it.
@@ -46,6 +55,7 @@ Source: the runs `20261022-092723-eleven-left`, `20261022-095134-eleven-average`
 - WhiStress (vendored, MIT, with the transformers 5 fix) gives the ICDS poster's marks on every item: StressTest
   218/218 and StressPresso 202/202, both given the transcript and from audio alone. F1 is 0.884 and 0.835, against
   the paper's 0.883 and 0.835. Top-1 (the word it rates most stressed is a stressed word) is 98.2% and 94.1%.
+- Rerun Nov 16 (`20261115-222537-stress-benchmarks`): WhiStress's marks byte-identical to Oct 22's.
 - The 26B reader on the marked transcripts: run `20261022-132631-stress-benchmarks`, results pending.
 - Provenance finding: the 26B file the poster and paper used cannot be downloaded any more. Its Hugging Face repo
   replaced the file under the same name six times in four months (STATUS.md). Pinning a file name does not pin a

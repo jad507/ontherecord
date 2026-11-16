@@ -60,8 +60,10 @@ Nov 15 evening, the GPU free overnight (Jeff: "gpu is free overnight if you have
      Oct 22's aligned files.
    - Comments: 121 on eleven-left (the old stage also found 121), 79 on as-coded (old: 98), 3 on jan29 (old: 4).
      The same counts came out on both code passes (v1 and v2).
-   - **Stopped here for Jeff**: the audit's K5 says the left channel's words "must match exactly"; that premise is
-     false on this machine. Not done until he decides: K6 (delete old runs, prune), the notes, the merge.
+   - Jeff accepted the new numbers (Nov 16), so K5 passed; researchathon-notes.md has them with the reason. He
+     asked why the old runs should go: they are kept (7 MB of records, 131 MB of store entries only they use, and
+     the only copy of Oct 22's transcripts). No `store prune`. The check set's audio is the same store entries the
+     new runs use, so nothing was re-pointed. `formats` merged into main (not pushed).
 3. Code v2 (`08ab181`): annotations named the model by the path llama-server reports (the home folder); now
    the file name.
 4. The assistant eval is not run. Through `ontherecord exclusive` it scores 2 of 25, because the assistant
