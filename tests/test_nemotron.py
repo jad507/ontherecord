@@ -91,7 +91,7 @@ def test_run_against_a_server_answer(tmp_path, monkeypatch):
                     Context(config=None, scratch=tmp_path))
     assert sent == [("http://x/v1", "audio/flac", True)]  # one piece: the file as it is
     assert set(res.files) == set(stage.makes)
-    assert json.loads((out / "transcript.json").read_text())["segments"][0]["text"] == "Good evening, everyone."
+    assert json.loads((out / "transcript.json").read_text())["units"][0]["text"] == "Good evening, everyone."
     assert {c.name: c.status for c in res.checks}["answers"] == "ok"
     assert res.metrics["input_tokens"] == 60 and res.metrics["speaker_count"] == 2
 
@@ -112,3 +112,23 @@ def test_either_checkpoint_resolves_to_its_pinned_revision_and_nvfp4_needs_black
     args = nm.server_args(tmp_path, 1234, {"gpu_memory_utilization": 0.85, "max_num_batched_tokens": 4096,
                                            "speculative_tokens": 0, "offload_backend": "auto"}, 6)
     assert args[args.index("--kv-cache-dtype") + 1] == "fp8" and args[args.index("--cpu-offload-gb") + 1] == "6"
+
+
+def test_a_server_that_does_not_answer_raises_so_nothing_is_stored(tmp_path, monkeypatch):
+    sf = pytest.importorskip("soundfile")
+    np = pytest.importorskip("numpy")
+    import urllib.error
+    audio = tmp_path / "a.flac"
+    sf.write(audio, np.zeros(16000 * 4, dtype="float32"), 16000)
+
+    def refused(*a, **k):
+        raise urllib.error.URLError(ConnectionRefusedError(111, "Connection refused"))
+    monkeypatch.setattr(nm, "ask", refused)
+    stage = nm.NemotronTranscribe()
+    settings = {k: v.default for k, v in stage.settings.items()}
+    out = tmp_path / "out"
+    out.mkdir()
+    with pytest.raises(RuntimeError, match="did not answer"):
+        stage.run(Item(id="m"), {"audio": audio}, out, settings, {"url": "http://x/v1", "tools": {}},
+                  Context(config=None, scratch=tmp_path))
+    assert not (out / "transcript.json").exists()

@@ -154,9 +154,10 @@ class NemotronTranscribe(Stage):
             try:
                 resp = ask(state["url"], data, mime, settings)
             except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as e:
-                problems.append(f"piece {k + 1}: {e}")
-                raw.append({"start_s": a, "end_s": b, "error": str(e)})
-                continue
+                # The server failed, not the recording: raise so nothing is stored and a rerun tries again.
+                # (Saving it as a failed check cached empty transcripts that every later run reused.)
+                raise RuntimeError(f"nemotron_transcribe: piece {k + 1} of {len(pieces)}: the server did not answer "
+                                   f"({e}); see vllm.log in the stage's scratch folder") from e
             seconds = round(time.time() - started, 1)
             choice = resp["choices"][0]
             usage = resp.get("usage") or {}
